@@ -1,4 +1,4 @@
-Module: wiki-internal
+Module: %wiki
 Synopsis: An ad-hoc parser for wiki markup
 Author: Carl Gay
 Copyright: This code is in the public domain.

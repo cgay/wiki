@@ -1,4 +1,4 @@
-Module: wiki-internal
+Module: %wiki
 
 define thread variable *page-title* = #f;
 
@@ -105,7 +105,6 @@ define method save-page
     action := $create;
   end;
   save-page-internal(page, content, comment, tags, author, action);
-  dump-data();
   block ()
     generate-connections-graph(page);
   exception (ex :: <serious-condition>)

@@ -1,4 +1,4 @@
-Module: wiki-internal
+Module: %wiki
 
 // These are sent as the text and URL for the Atom feed generator element.
 define variable *site-name* :: <string> = "Dylan Wiki";

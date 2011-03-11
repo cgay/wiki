@@ -1,4 +1,4 @@
-Module: wiki-internal
+Module: %wiki
 
 define constant $wiki-version :: <string> = "2009.12.04"; // YYYY.mm.dd
 

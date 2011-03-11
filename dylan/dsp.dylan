@@ -1,4 +1,4 @@
-Module: wiki-internal
+Module: %wiki
 
 define taglib wiki () end;
 

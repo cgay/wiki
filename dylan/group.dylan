@@ -1,4 +1,4 @@
-Module: wiki-internal
+Module: %wiki
 
 // todo -- I don't like that these are mutable.  It makes it hard to
 //         reason about the code.  Probably goes for other objects too.

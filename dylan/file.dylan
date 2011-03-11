@@ -1,4 +1,4 @@
-module: wiki-internal
+module: %wiki
 
 define thread variable *file-filename* = #f;
 

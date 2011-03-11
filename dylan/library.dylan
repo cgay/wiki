@@ -35,7 +35,7 @@ define library wiki
 
   export
     wiki,
-    wiki-internal;   // for the test suite
+    %wiki;   // for the test suite
 end library wiki;
 
 define module wiki
@@ -43,7 +43,7 @@ define module wiki
     add-wiki-responders;
 end;
 
-define module wiki-internal
+define module %wiki
   use changes,
     rename: { published => date-published,
               label => category-label },
@@ -106,5 +106,5 @@ define module wiki-internal
     <wiki-user>,
     <wiki-page>;
 
-end module wiki-internal;
+end module %wiki;
 

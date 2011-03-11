@@ -1,4 +1,4 @@
-Module: wiki-internal
+Module: %wiki
 
 define thread variable *user-username* = #f;
 

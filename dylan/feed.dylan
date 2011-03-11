@@ -1,4 +1,4 @@
-Module: wiki-internal
+Module: %wiki
 
 define method atom-feed-responder
     (#key type, name)

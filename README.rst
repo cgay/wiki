@@ -1,6 +1,20 @@
 wiki
 ====
 
+This library is a wiki written in the Dylan language.  It supports the
+following features:
+
+  * All data is stored in a git repository so it can be edited offline
+    if desired, backed up, reverted, etc.
+
+  * Account verification.
+
+  * Access controls -- each object in the wiki can be restricted to
+    being viewed or edited by specific sets of users.
+
+How to Run
+==========
+
 Build the library and then run it like this::
 
    wiki --config koala-config.xml
@@ -13,3 +27,26 @@ You will need to tweak these values in the config file:
 
 * *koala.wiki.administrator.password* -- Choose a password you like.
 
+
+
+Git File Layout
+===============
+
+The files are laid out in the git repository as follows::
+
+  <repo-root>/
+    wikis
+      <wiki-name-1>/
+	<page-name-1>/content  # page markup
+	<page-name-1>/tags     # page tags, one per line
+	<page-name-1>/acls     # page ACLs, one per line
+	<page-name-2>/content
+	<page-name-2>/tags
+	<page-name-2>/acls
+	...
+      <wiki-name-2>/
+	<page-name-1>/content
+	<page-name-1>/tags
+	<page-name-1>/acls
+	...
+    

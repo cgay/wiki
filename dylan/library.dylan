@@ -19,17 +19,24 @@ define library wiki
   use strings;
   use string-extensions;
   use system,
-    import: { locators, threads, date, file-system };
+    import: {
+      date,
+      file-system,
+      locators,
+      operating-system,
+      threads
+      };
   use regular-expressions;
   use uri;
   use web-framework;
   use xml-parser;
   use xml-rpc-client;
 
-  use source-location;
+/* for the monday parser, currently unused
   use grammar;
   use simple-parser;
   use regular;
+*/
 
   use uncommon-dylan;
 
@@ -63,10 +70,10 @@ define module %wiki
   use koala;
   use locators,
     exclude: { <http-server>, <url> };
+  use operating-system;
   use permission;
   use simple-xml;
   use smtp-client;
-  use storage;
   use streams;
   use strings,
     import: { trim };
@@ -78,19 +85,18 @@ define module %wiki
   use uri;
   use users;
   use web-framework,
-    prefix: "wf/",
-    exclude: { slot-type };
+    prefix: "wf/";
   use wiki;
   use xml-parser,
     prefix: "xml/";
   use xml-rpc-client;
 
-  // for the parser
+  // for the monday parser, currently unused
+/*
   use simple-parser;
-  use source-location;
-  use source-location-rangemap;
   use grammar;
   use simple-lexical-scanner;
+*/
 
   use graphviz-renderer,
     prefix: "gvr/";

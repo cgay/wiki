@@ -3,13 +3,8 @@ Module: %wiki
 define thread variable *user-username* = #f;
 
 
-// class
-
-define constant <wiki-user> = <user>;
-/*
-define class <wiki-user> (<user>)
+define class <wiki-user> (<wiki-object>, <user>)
 end;
-*/
 
 // This is set in main.dylan, via the config file.
 define variable *admin-user* :: false-or(<wiki-user>) = #f;

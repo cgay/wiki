@@ -6,53 +6,42 @@ define thread variable *page-title* = #f;
 // Not to be confused with <wiki-dsp>, which is a DSP maintained in our
 // source code tree.
 //
-define class <wiki-page> (<entry>)
+define class <wiki-page> (<wiki-object>)
+
+  slot page-title :: <string>,
+    required-init-keyword: title:;
+
+  slot page-content :: <string>,
+    required-init-keyword: content:;
+
+  slot page-tags :: <sequence> = #(),
+    init-keyword: tags:;
+
   slot page-owner :: <wiki-user>,
     required-init-keyword: owner:;
+
   slot access-controls :: <acls> = $default-access-controls,
     init-keyword: access-controls:;
+
+  // This is probably not needed with the git back-end?
   slot page-versions :: <vector> = #[],
     init-keyword: versions:;
 end;
 
-define wf/object-tests
-    (page, version, other-version, diff-version, diff-other-version)
-in wiki end;
+define thread variable *page* :: false-or(<wiki-page>) = #f;
 
-/*
-define wf/action-tests
- (view-page, edit-page,
-  remove-page, view-versions)
-in wiki end;
-*/
-
-define wf/error-test (title) in wiki end;
-
-
-
-// storage
-
-define method storage-type
-    (type == <wiki-page>)
- => (type :: <type>);
-  <string-table>;
-end;
-
-// Tells web-framework under what unique (I assume) key to store this object.
-//
-define inline-only method key
-    (page :: <wiki-page>)
- => (res :: <string>)
-  page.title
+define named-method page? in wiki
+    (page :: <dylan-server-page>)
+  *page* ~= #f
 end;
 
 
-// url
+//// URLs
 
 define method permanent-link
     (page :: <wiki-page>, #key escaped?, full?)
  => (url :: <url>)
-  page-permanent-link(key(page))
+  page-permanent-link(page.title)
 end;
 
 define method page-permanent-link
@@ -67,13 +56,13 @@ define method redirect-to (page :: <wiki-page>)
 end;
 
 
-// methods
+//// Load pages
 
 define method find-page
-    (title :: <string>)
- => (page :: false-or(<wiki-page>))
-  element(storage(<wiki-page>), title, default: #f)
+    (title :: <string>) => (page :: false-or(<wiki-page>))
+  load-page(*wiki-storage*, title)
 end;
+
 
 define method add-author
     (page :: <wiki-page>, user :: <user>)
@@ -97,14 +86,18 @@ define method save-page
     (title :: <string>, content :: <string>, 
      #key comment :: <string> = "", tags :: false-or(<sequence>))
  => ()
-  let page :: false-or(<wiki-page>) = find-page(title);
   let action :: <symbol> = $edit;
-  let author :: <wiki-user> = authenticated-user();
+  let author :: <wiki-user> = ;
   if (~page)
-    page := make(<wiki-page>, title: title, owner: author);
+    page := make(<wiki-page>,
+                 title: title,
+                 content: content,
+                 tags: tags | #(),
+                 comment: comment,
+                 owner: authenticated-user());
     action := $create;
   end;
-  save-page-internal(page, content, comment, tags, author, action);
+  save-page-internal(page, action);
   block ()
     generate-connections-graph(page);
   exception (ex :: <serious-condition>)
@@ -122,11 +115,12 @@ define method save-page-internal
      tags :: <sequence>, author :: <wiki-user>, action :: <symbol>,
      #key published :: false-or(<date>))
   let title = page.title;
-  let version-number :: <integer> = size(page.page-versions) + 1;
-  if (version-number = 1
-        | content ~= page.latest-text
-        | tags ~= page.latest-tags)
+  if (~page-exists?(page)
+      | content ~= page.latest-text
+      | tags ~= page.latest-tags)
     let date-published = published | current-date();
+    save-page(*wiki-storage*, page
+
     let version = make(<wiki-page-version>,
                        content: make(<raw-content>, content: content),
                        authors: list(author),

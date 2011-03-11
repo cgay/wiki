@@ -2,6 +2,12 @@ Module: %wiki
 
 define constant $wiki-version :: <string> = "2009.12.04"; // YYYY.mm.dd
 
+/// All objects store in the wiki (pages, users, groups)
+/// must subclass this.
+///
+define class <wiki-object> (<object>)
+end;
+
 // Prefix for all wiki URLs.  Set to "" for no prefix.
 define variable *wiki-url-prefix* :: <string> = "/wiki";
 
@@ -42,6 +48,41 @@ define table $past-tense-table = {
 
 define wf/error-test (exists) in wiki end;
 
+
+
+
+//// Storage protocol
+
+/// Any back-end storage mechanism must be a subclass of this and support
+/// the generics that specialize on it.
+define class <storage> (<object>)
+end;
+
+/// Load an object from storage.
+///
+define generic load
+    (storage :: <storage>, class :: subclass(<wiki-object>), name :: <string>,
+     #key)
+ => (obj :: <wiki-object>);
+
+/// Store an object.
+/// Return the version of the stored object.
+///
+define generic store
+    (storage :: <storage>, obj :: <wiki-object>) => (version);
+
+/// Delete a page.
+define generic delete
+    (storage :: <storage>, page :: <wiki-object>) => ();
+
+
+/// This is what the above methods should signal if they can't fullfill
+/// their contract.
+define class <storage-error> (<format-string-condition>, <serious-condition>)
+end;
+
+
+
 define class <wiki-page-version> (<entry>)
   slot version-number :: <integer>,
     init-keyword: version:;

@@ -3,7 +3,7 @@ Module: %wiki
 // todo -- I don't like that these are mutable.  It makes it hard to
 //         reason about the code.  Probably goes for other objects too.
 //
-define class <wiki-group> (<object>)
+define class <wiki-group> (<wiki-object>)
   slot group-name :: <string>,
     required-init-keyword: name:;
   slot group-owner :: <wiki-user>,

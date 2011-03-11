@@ -17,26 +17,43 @@ How to Run
 
 Build the library and then run it like this::
 
-   wiki --config koala-config.xml
+   wiki --config config.xml
 
 
 You will need to tweak these values in the config file:
 
-* *koala.wiki.static-directory* -- Make it point at the "www" subdirectory.
+* *koala.wiki.repository* -- Make it point to the root directory of
+   your wiki git repository.  Example::
+
+     $ cd
+     $ mkdir wiki-data
+     $ cd wiki-data
+     $ git init
+
+     <wiki repository = "/home/you/wiki-data" ...>
+
+* If the "git" executable is not on the path of the user running the
+  wiki, then you need to specify it in the <wiki> element::
+
+     <wiki git-executable = "/usr/bin/git" ... />
+
+* *koala.wiki.static-directory* -- Make it point at the "www" subdirectory
   (I guess this should be made relative to <server-root>.)
 
 * *koala.wiki.administrator.password* -- Choose a password you like.
+  Feel free to rename the administrator account to whatever you like.
 
 
 
-Git File Layout
-===============
+Data File Layout
+================
 
-The files are laid out in the git repository as follows::
+The wiki data is stored in a git repository.  The files are laid out
+as follows::
 
   <repo-root>/
-    wikis
-      <wiki-name-1>/
+    domains
+      <domain-1>/
 	<page-name-1>/content  # page markup
 	<page-name-1>/tags     # page tags, one per line
 	<page-name-1>/acls     # page ACLs, one per line
@@ -44,9 +61,11 @@ The files are laid out in the git repository as follows::
 	<page-name-2>/tags
 	<page-name-2>/acls
 	...
-      <wiki-name-2>/
+      <domain-2>/
 	<page-name-1>/content
 	<page-name-1>/tags
 	<page-name-1>/acls
 	...
     
+The default domain name is "main" and currently there is no way to
+create new domains.

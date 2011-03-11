@@ -102,11 +102,11 @@ define method make
     (class :: subclass(<acls>), #key view-content, modify-content, modify-acls)
  => (object :: <acls>)
   // Make sure the ACLs can't be modified by mutating the sequences
-  // after creation.  Is there a better way to write this?
+  // after creation.
   apply(next-method, class,
-        view-content: copy-sequence(view-content | #()),
-        modify-content: copy-sequence(modify-content | #()),
-        modify-acls: copy-sequence(modify-acls | #()),
+        view-content:   slice(view-content, 0, #f),
+        modify-content: slice(modify-content, 0, #f),
+        modify-acls:    slice(modify-acls, 0, #f),
         #())
 end method make;
 

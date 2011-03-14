@@ -99,6 +99,13 @@ Groups
 
 Pages
 -----
+* Currently (as I rewrite to use git as the back end) I plan for most
+  operations to execute git commands directly rather than caching
+  anything.  Ultimately that will probably be too slow as the number
+  of pages grows.  One possible way forward will be to create a <page>
+  object for each page, without filling in the content, parsing tags,
+  etc., then fill in the page content as pages are loaded on demand.
+  For full content search we'll need an index.
 * Preview doesn't work if the page is new, never saved.
 * Looks like show-page-responder doesn't respect "view" ACLs (but I could
   be wrong because I've been away from the code for a while).

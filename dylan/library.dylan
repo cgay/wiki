@@ -56,6 +56,8 @@ define module %wiki
               label => category-label },
     exclude: { <uri> };
   use sequence-diff;
+  use collections,
+    import: { <set> };
   use command-line-parser;
   use common-extensions,
     exclude: { format-to-string };

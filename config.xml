@@ -25,6 +25,8 @@
 	 containing the www, dylan, and dsp subdirectories.
      -->
   <wiki content-directory="."
+	git-branch="master"
+	git-executable="c:/Program Files/Git/bin/git"
         site-name="Dylan Wiki"
         site-url="http://localhost"
 	url-prefix="/wiki"
@@ -33,8 +35,7 @@
     <!-- Note that the administrator's email address will be the one
          from which account emails are sent, so it runs a high spam risk.
       -->
-    <administrator username="admin"
-		   password="xxxx"
+    <administrator password="xxxx"
                    email="...@opendylan.org"/>
     <authentication realm="dylan-wiki"/>
     <mail host="localhost"/>

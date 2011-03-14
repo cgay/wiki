@@ -1,4 +1,6 @@
 Module: %wiki
+Synopsis: Group maintenance
+
 
 // todo -- I don't like that these are mutable.  It makes it hard to
 //         reason about the code.  Probably goes for other objects too.
@@ -36,35 +38,19 @@ end method validate-group-name;
 define wf/error-test (name) in wiki end;
 
 
-// storage
-
-define method storage-type
-    (type == <wiki-group>)
- => (type :: <type>)
-  <string-table>
-end;
-
-// Tells web-framework under what unique (I assume) key to store this object.
-//
-define inline-only method key
-    (group :: <wiki-group>)
- => (res :: <string>)
-  group.group-name
-end;
-
 
 // url
 
 define method permanent-link
     (group :: <wiki-group>, #key escaped?, full?)
  => (url :: <url>)
-  group-permanent-link(key(group))
+  group-permanent-link(group)
 end;
 
 define method group-permanent-link
-    (name :: <string>)
+    (group :: <wiki-group>)
  => (url :: <url>)
-  let location = wiki-url("/group/view/%s", name);
+  let location = wiki-url("/group/view/%s", group.group-name);
   transform-uris(request-url(current-request()), location, as: <url>)
 end;
 
@@ -78,7 +64,7 @@ end;
 define method find-group
     (name :: <string>)
  => (group :: false-or(<wiki-group>))
-  element(storage(<wiki-group>), name, default: #f)
+  element(*users*, name, default: #f)
 end;
 
 // Find all groups that a user is a member of.
@@ -89,7 +75,7 @@ define method user-groups
   choose(method (group)
            member?(user, group.group-members)
          end,
-         value-sequence(storage(<wiki-group>)))
+         value-sequence(*groups*))
 end;
 
 define method groups-owned-by-user
@@ -98,7 +84,7 @@ define method groups-owned-by-user
   choose(method (group)
            group.group-owner = user
          end,
-         value-sequence(storage(<wiki-group>)))
+         value-sequence(*groups*))
 end;
 
 define method rename-group
@@ -121,12 +107,13 @@ define method rename-group
       error("group %s already exists", new-name);
     end;
     let comment = concatenate("was: ", group.group-name, ". ", comment);
-    remove-key!(storage(<wiki-group>), group.group-name);
-    group.group-name := new-name;
-    storage(<wiki-group>)[new-name] := group;
-    save-change(<wiki-group-change>, new-name, $rename, comment);
-    save(group);
-    dump-data();
+    // TODO: verify that tables are not thread safe already
+    with-lock ($group-lock)
+      remove-key!(*groups*, group.group-name);
+      group.group-name := new-name;
+      *groups*[new-name] := group;
+    end;
+    store(*storage*, group, comment);
   end if;
 end method rename-group;
 
@@ -136,9 +123,7 @@ define method create-group
   let group = make(<wiki-group>,
                    name: name,
                    owner: authenticated-user());
-  save-change(<wiki-group-change>, name, $create, comment);
-  save(group);
-  dump-data();
+  store(*storage*, group, comment);
   group
 end method create-group;
 
@@ -148,9 +133,7 @@ define method add-member
  => ()
   add-new!(group.group-members, user);
   let comment = concatenate("added ", user.user-name, ". ", comment);
-  save-change(<wiki-group-change>, group.group-name, $edit, comment);  
-  save(group);
-  dump-data();
+  store(*storage*, group, comment);
 end;
 
 define method remove-member
@@ -159,21 +142,23 @@ define method remove-member
  => ()
   remove!(group.group-members, user);
   let comment = concatenate("removed ", user.user-name, ". ", comment);
-  save-change(<wiki-group-change>, group.group-name, $edit, comment);  
-  save(group);
-  dump-data();
+  store(*storage*, group, comment);
 end;
 
-// todo -- MAKE THREAD SAFE
 define method remove-group
-    (group :: <wiki-group>,
-     #key comment :: <string> = "")
-  remove-key!(storage(<wiki-group>), group.group-name);
+    (group :: <wiki-group>, #key comment :: <string> = "")
+ => ()
+  with-lock ($group-lock)
+    remove-key!(*groups*, group.group-name);
+  end;
+  TODO; // save a list of pages that have acls using this group
+        // in one of the group's data files.
+/*
   for (page in storage(<wiki-page>))
     remove-rules-for-target(page.access-controls, group);
   end;
-  save-change(<wiki-group-change>, group.group-name, $remove, comment);
-  dump-data();
+*/
+  store(*storage*, group, comment);
 end;
 
 
@@ -198,7 +183,9 @@ define method respond-to-get
                 "description" => quote-html(group.group-description))
         end;
   set-attribute(page-context(), "all-groups",
-                map(group-info, value-sequence(storage(<wiki-group>))));
+                map(group-info, with-lock ($group-lock)
+                                  value-sequence(*groups*)
+                                end));
   next-method();
 end method respond-to-get;
 
@@ -289,9 +276,7 @@ define method respond-to-post
             | new-owner ~= group.group-owner)
         group.group-description := description;
         group.group-owner := new-owner;
-        save(group);
-        save-change(<wiki-group-change>, name, $edit, comment);
-        dump-data();
+        store(*storage*, group, comment);
       end;
       redirect-to(group);
     end if;
@@ -311,7 +296,7 @@ define method respond-to-post
   if (group)
     let user = authenticated-user();
     if (user & (user = group.group-owner | administrator?(user)))
-      remove-group(group, comment: get-query-value("comment"));
+      delete(*storage*, group, get-query-value("comment") | "");
       add-page-note("Group %s removed", group-name);
     else
       add-page-error("You do not have permission to remove this group.")
@@ -337,17 +322,19 @@ define method respond-to-get
   let name = percent-decode(name);
   let group = find-group(name);
   if (group)
-    // Note: user must be logged in.  That check is done in the template.
-    // non-members is for the add/remove members page
-    set-attribute(page-context(),
-                  "non-members",
-                  sort(key-sequence(storage(<wiki-user>))));
-    // Add all users to the page context so they can be selected
-    // for group membership.
-    set-attribute(page-context(),
-                  "all-users",
-                  sort(key-sequence(storage(<wiki-user>))));
-  end;
+    with-lock ($user-lock)
+      // Note: user must be logged in.  That check is done in the template.
+      // non-members is for the add/remove members page
+      set-attribute(page-context(),
+                    "non-members",
+                    sort(key-sequence(*users*)));
+      // Add all users to the page context so they can be selected
+      // for group membership.
+      set-attribute(page-context(),
+                    "all-users",
+                    sort(key-sequence(*users*)));
+    end with-lock;
+  end if;
   next-method();
 end method respond-to-get;
 

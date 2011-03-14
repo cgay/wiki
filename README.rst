@@ -41,7 +41,6 @@ You will need to tweak these values in the config file:
   (I guess this should be made relative to <server-root>.)
 
 * *koala.wiki.administrator.password* -- Choose a password you like.
-  Feel free to rename the administrator account to whatever you like.
 
 
 

@@ -10,11 +10,22 @@ define variable *wiki-realm* :: <string> = "wiki";
 define variable *mail-host* = #f;
 define variable *mail-port* :: <integer> = $default-smtp-port;
 
+define constant $administrator-user-name :: <string> = "administrator";
+
+/// This is called when the <wiki> element in the config file is
+/// processed.
 define sideways method process-config-element
     (server :: <http-server>, node :: xml/<element>, name == #"wiki")
-  // set the content-directory
-  process-config-element(server, node, #"web-framework");
-  
+
+  let content-directory = get-attr(node, #"content-directory") | "wiki-data";
+  let git-exe = get-attr(node, #"git-executable") | "git";
+  let git-branch = get-attr(node, #"git-branch") | "master";
+  *storage* := make(<git-storage>,
+                    repository-root: content-directory,
+                    executable: git-exe,
+                    branch: git-branch);
+  initialize-storage(*storage*);
+
   local method child-node-named (name)
           block (return)
             for (child in xml/node-children(node))
@@ -62,42 +73,40 @@ end method process-config-element;
 
 define method process-administrator-configuration
     (admin-element :: xml/<element>)
-  let username = get-attr(admin-element, #"username");
   let password = get-attr(admin-element, #"password");
   let email = get-attr(admin-element, #"email");
-  if (~(username & password & email))
+  if (~(password & email))
     error("The <administrator> element must be specified in the config file "
-          "with a username, password, and email.");
+          "with a password and email.");
   end;
-  let username = validate-user-name(username);
   let password = validate-password(password);
   let email = validate-email(email);
-  let admin = find-user(username);
+  let admin = find-user($administrator-user-name);
   let admin-changed? = #f;
   if (admin)
     if (admin.user-password ~= password)
       admin.user-password := password;
       admin-changed? := #t;
-      log-info("Administrator user (%s) password changed.", username);
+      log-info("Administrator user (%s) password changed.", $administrator-user-name);
     end;
     if (admin.user-email ~= email)
       admin.user-email := email;
       admin-changed? := #t;
-      log-info("Administrator user (%s) email changed to %=.", username, email);
+      log-info("Administrator user (%s) email changed to %=.",
+               $administrator-user-name, email);
     end;
   else
     admin := make(<wiki-user>,
-                  name: username,
+                  name: $administrator-user-name,
                   password: password,
                   email: email,
                   administrator?: #t,
                   activated?: #t);
     admin-changed? := #t;
-    log-info("Administrator user (%s) created.", username);
+    log-info("Administrator user (%s) created.", $administrator-user-name);
   end;
   if (admin-changed?)
-    save(admin);
-    dump-data();
+    store(*storage*, admin, "Change due to config file edit");
   end;
   *admin-user* := admin;
 end method process-administrator-configuration;
@@ -176,7 +185,7 @@ define function restore-from-text-files
                           email: email,
                           administrator?: #f,
                           activated?: #t);
-          save(user);
+          store(*storage*, user, "New user");
           inc!(user-count);
         end;
         assert(empty?(read-line(stream)));
@@ -205,21 +214,17 @@ define function restore-from-text-files
                                                   end,
                                                   parse-line(stream)));
       let comment = parse-line(stream);
-      let action = #"edit";
       let page = find-page(title);
       if (~page)
+        let content = file-contents(page-locator(page-num, rev-num, "content"));
         page := make(<wiki-page>,
                      title: title,
+                     content: content,
                      owner: author);
-        action := #"add";
       end;
-      let tags = #[];
-      let content = file-contents(page-locator(page-num, rev-num, "content"));
-      save-page-internal(page, content, comment, tags, author, action,
-                         published: timestamp);
+      store(*storage*, page, comment);
     end;
   end for;
-  dump-data();
   page-data.size
 end function restore-from-text-files;
 

@@ -2,6 +2,24 @@ Module: %wiki
 
 define constant $wiki-version :: <string> = "2009.12.04"; // YYYY.mm.dd
 
+/// All users are loaded from storage at startup and stored in this collection.
+///
+// TODO: make case insensitive
+define variable *users* :: <string-table> = make(<string-table>);
+
+/// Hold this when modifying *users*.  TODO: use it
+define constant $users-lock :: <lock> = make(<lock>);
+
+/// All groups are loaded from storage at startup and stored in this collection.
+///
+define variable *groups* :: <string-table> = make(<string-table>);
+
+/// Hold this when modifying *groups*.  TODO: use it.
+define constant $group-lock :: <lock> = make(<lock>);
+
+/// Hold this when modifying *users*.  TODO: use it.
+define constant $user-lock :: <lock> = make(<lock>);
+
 /// All objects store in the wiki (pages, users, groups)
 /// must subclass this.
 ///
@@ -58,23 +76,38 @@ define wf/error-test (exists) in wiki end;
 define class <storage> (<object>)
 end;
 
-/// Load an object from storage.
-///
+/// This is initialized when the config file is loaded.
+define variable *storage* :: false-or(<storage>) = #f;
+
+
+/// Initialize storage upon startup
+define generic initialize-storage
+    (storage :: <storage>) => ();
+
+
 define generic load
     (storage :: <storage>, class :: subclass(<wiki-object>), name :: <string>,
      #key)
  => (obj :: <wiki-object>);
 
-/// Store an object.
-/// Return the version of the stored object.
-///
+// This probably won't be supported for pages since it would be so expensive.
+// I expect to load all users and groups at startup though.
+define generic load-all
+    (storage :: <storage>, class :: subclass(<wiki-object>))
+ => (objects :: <collection>);
+
+
 define generic store
-    (storage :: <storage>, obj :: <wiki-object>) => (version);
+    (storage :: <storage>, obj :: <wiki-object>, comment :: <string>)
+ => (revision :: <string>);
 
-/// Delete a page.
 define generic delete
-    (storage :: <storage>, page :: <wiki-object>) => ();
+    (storage :: <storage>, obj :: <wiki-object>, comment :: <string>)
+ => ();
 
+define generic rename
+    (storage :: <storage>, obj :: <wiki-object>, new-name :: <string>)
+ => ();
 
 /// This is what the above methods should signal if they can't fullfill
 /// their contract.
@@ -83,106 +116,6 @@ end;
 
 
 
-define class <wiki-page-version> (<entry>)
-  slot version-number :: <integer>,
-    init-keyword: version:;
-  slot version-page :: <wiki-page>,
-    init-keyword: page:;
-  slot references :: <sequence> = list(),
-    init-keyword: references:;
-end;
-
-define class <wiki-change> (<entry>)
-  slot change-action :: <symbol>,
-    required-init-keyword: action:;
-end;
-
-define class <wiki-user-change> (<wiki-change>)
-end;
-
-define class <wiki-page-change> (<wiki-change>)
-  slot change-version :: <integer> = 0,
-    init-keyword: version:;
-end;
-
-define class <wiki-group-change> (<wiki-change>)
-end;
-
-define class <wiki-acls-change> (<wiki-change>)
-end;
-
-// Used for css class names in the /recent-changes page.
-define generic change-type-name
-    (change :: <wiki-change>) => (type-name :: <string>);
-
-define method change-type-name
-    (change :: <wiki-user-change>) => (type-name :: <string>)
-  "user-change"
-end;
-
-define method change-type-name
-    (change :: <wiki-page-change>) => (type-name :: <string>)
-  "page-change"
-end;
-
-define method change-type-name
-    (change :: <wiki-group-change>) => (type-name :: <string>)
-  "group-change"
-end;
-
-define method change-type-name
-    (change :: <wiki-acls-change>) => (type-name :: <string>)
-  "acls-change"
-end;
-
-define method permanent-link
-    (change :: <wiki-user-change>, #key) => (uri :: <uri>)
-  user-permanent-link(change.title)
-end;
-
-define method permanent-link
-    (change :: <wiki-page-change>, #key) => (url :: <url>)
-  page-permanent-link(change.title)
-end;
-
-define method permanent-link
-    (change :: <wiki-group-change>, #key) => (url :: <url>)
-  group-permanent-link(change.title)
-end;
-
-define method permanent-link
-    (change :: <wiki-acls-change>, #key) => (url :: <url>)
-  page-permanent-link(change.title)
-end;
-
-// If authors: is not provided then the current authenticated user is used
-// or an error is signalled if there is no authenticated user.
-//
-// Note that the title argument is assumed by some code to be the key
-// that can be used to find the original object being modified.  e.g.,
-// the user name, the group name, or the page title.
-//
-define method save-change
-    (class :: <class>, title :: <string>, action :: <symbol>, comment :: <string>,
-     #key authors)
- => ()
-  if (~authors)
-    let auth-user = authenticated-user();
-    if (auth-user)
-      authors := list(auth-user.user-name);
-    else
-      unauthorized-error();
-    end;
-  end;
-
-  let change = make(class, title: title, action: action, authors: authors);
-  change.comments[0] := make(<comment>,
-                             name: as(<string>, action),
-                             authors: authors,
-                             content: make(<raw-content>, content: comment));
-  save(change);
-end;
-
 
 // Standard date format.  The plan is to make this customizable per user
 // and to use the user's timezone.  For now just ISO 8601...
@@ -205,9 +138,7 @@ end;
 define tag show-version-published in wiki
     (page :: <wiki-dsp>)
     (formatted :: <string>)
-  if (*version*)
-    output("%s", format-date(formatted, *version*.date-published));
-  end if;
+  output("%s", format-date(formatted, *page*.date-published));
 end;
 
 define tag show-page-published in wiki
@@ -218,20 +149,18 @@ define tag show-page-published in wiki
   end if;
 end;
 
+// Rename to show-revision
 define tag show-version-number in wiki
     (page :: <wiki-dsp>)
     ()
-  if (*version*)
-    output("%d", *version*.version-number);
-  end if;
+  output("%s", *page*.page-revision);
 end; 
 
+// Rename to show-comment
 define tag show-version-comment in wiki
     (page :: <wiki-dsp>)
     ()
-  if (*version*)
-    output("%s", *version*.comments[0].content.content);
-  end if;
+  output("%s", *page*.page-comment);
 end;
 
 
@@ -263,38 +192,14 @@ define method wiki-changes
           tag :: false-or(<string>),
           name :: false-or(<string>))
  => (changes :: <sequence>)
-  let change-types = iff(change-type,
-                         list(change-type),
-                         list(<wiki-user-change>,
-                              <wiki-page-change>,
-                              <wiki-group-change>));
-  let changes = apply(concatenate,
-                      map(curry(map-as, <vector>, identity),
-                          map(storage, change-types)));
-  let auth-user = authenticated-user();
-  local method filter (change)
-          if (instance?(change, <wiki-page-change>))
-            let page = find-page(change.title);
-            if (has-permission?(auth-user, page, $view-content))
-              // bug: this omits the deletion of a page with the tag.
-              if (tag)
-                page & member?(tag, page.latest-tags, test: \=)
-              else
-                ~name | change.title = name
-              end
-            end
-          elseif (name)
-            change.title = name
-          else
-            #t
-          end
-        end method filter;
-  choose(filter, changes)
+  TODO;
 end method wiki-changes;
 
 define body tag list-recent-changes in wiki
     (page :: <wiki-dsp>, do-body :: <function>)
     ()
+  TODO;
+/*
   let pc = page-context();
   let previous-change = #f;
   let paginator :: <paginator> = get-attribute(pc, "recent-changes");
@@ -319,9 +224,12 @@ define body tag list-recent-changes in wiki
                     let user = ~empty?(authors) & find-user(authors[0]);
                     user & user.user-name
                   end);
+*/
     do-body();
+/*
     previous-change := change;
   end;
+*/
 end tag list-recent-changes;
 
 define tag base-url in wiki

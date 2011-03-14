@@ -1,7 +1,5 @@
 Module: %wiki
 
-define thread variable *page-title* = #f;
-
 // Represents a user-editable wiki page that will be stored by web-framework.
 // Not to be confused with <wiki-dsp>, which is a DSP maintained in our
 // source code tree.
@@ -14,11 +12,15 @@ define class <wiki-page> (<wiki-object>)
   slot page-content :: <string>,
     required-init-keyword: content:;
 
-  slot page-tags :: <sequence> = #(),
-    init-keyword: tags:;
-
   slot page-owner :: <wiki-user>,
     required-init-keyword: owner:;
+
+  // e.g. a git commit hash or a revision number
+  slot page-revision :: <string>,
+    init-keyword: revision:;
+
+  slot page-tags :: <sequence> = #(),
+    init-keyword: tags:;
 
   slot access-controls :: <acls> = $default-access-controls,
     init-keyword: access-controls:;
@@ -26,7 +28,7 @@ define class <wiki-page> (<wiki-object>)
   // This is probably not needed with the git back-end?
   slot page-versions :: <vector> = #[],
     init-keyword: versions:;
-end;
+end class <wiki-page>;
 
 define thread variable *page* :: false-or(<wiki-page>) = #f;
 
@@ -41,7 +43,7 @@ end;
 define method permanent-link
     (page :: <wiki-page>, #key escaped?, full?)
  => (url :: <url>)
-  page-permanent-link(page.title)
+  page-permanent-link(page.page-title)
 end;
 
 define method page-permanent-link
@@ -60,21 +62,11 @@ end;
 
 define method find-page
     (title :: <string>) => (page :: false-or(<wiki-page>))
-  load-page(*wiki-storage*, title)
+  load(*storage*, <wiki-user>, title)
 end;
 
 
-define method add-author
-    (page :: <wiki-page>, user :: <user>)
- => (user :: <user>)
-  page.authors := add-new!(page.authors, user,
-                           test: method (user1, user2)
-                                   user1.user-name = user2.user-name
-                                 end);
-  user
-end method add-author;
-
-// todo -- Do this as a wiki page.
+// todo -- Implement this as a wiki page.
 define constant $reserved-tags :: <sequence> = #["news"];
 
 define method reserved-tag?
@@ -83,11 +75,9 @@ define method reserved-tag?
 end;
 
 define method save-page
-    (title :: <string>, content :: <string>, 
-     #key comment :: <string> = "", tags :: false-or(<sequence>))
- => ()
-  let action :: <symbol> = $edit;
-  let author :: <wiki-user> = ;
+    (title :: <string>, content :: <string>, comment :: <string>, tags :: <sequence>)
+ => (page :: <wiki-page>)
+  let page :: false-or(<wiki-page>) = find-page(title);
   if (~page)
     page := make(<wiki-page>,
                  title: title,
@@ -95,9 +85,8 @@ define method save-page
                  tags: tags | #(),
                  comment: comment,
                  owner: authenticated-user());
-    action := $create;
   end;
-  save-page-internal(page, action);
+  page.page-revision := store(*storage*, page, comment);
   block ()
     generate-connections-graph(page);
   exception (ex :: <serious-condition>)
@@ -106,55 +95,15 @@ define method save-page
     log-error("Error generating connections graph for page %s: %s",
               title, ex);
   end;
+  page
 end method save-page;
 
-// This is separated out so it can be used for the conversion from the
-// old wiki to new.
-define method save-page-internal
-    (page :: <wiki-page>, content :: <string>, comment :: <string>,
-     tags :: <sequence>, author :: <wiki-user>, action :: <symbol>,
-     #key published :: false-or(<date>))
-  let title = page.title;
-  if (~page-exists?(page)
-      | content ~= page.latest-text
-      | tags ~= page.latest-tags)
-    let date-published = published | current-date();
-    save-page(*wiki-storage*, page
-
-    let version = make(<wiki-page-version>,
-                       content: make(<raw-content>, content: content),
-                       authors: list(author),
-                       version: version-number,
-                       page: page,
-		       categories: tags & as(<vector>, tags),
-                       published: date-published);
-    let comment = make(<comment>,
-                       name: as(<string>, action),
-                       authors: list(author.user-name),
-                       content: make(<raw-content>, content: comment));
-    version.comments[0] := comment;
-    version.references := extract-references(version);
-    add-author(page, author);
-    with-storage (pages = <wiki-page>)
-      page.page-versions := add!(page.page-versions, version);
-    end;
-    let change = make(<wiki-page-change>,
-                      title: title,
-                      version: version-number, 
-                      action: action,
-                      authors: list(author.user-name),
-                      published: date-published);
-    change.comments[0] := comment;
-    save(page);
-    save(change);
-  end if;
-end method save-page-internal;
-
-define method generate-connections-graph (page :: <wiki-page>) => ();
+define method generate-connections-graph
+    (page :: <wiki-page>) => ()
   let graph = make(gvr/<graph>);
   let node = gvr/create-node(graph, label: page.title);
   let backlinks = find-backlinks(page);
-  backlinks := map(title, backlinks);
+  backlinks := map(page-title, backlinks);
   gvr/add-predecessors(node, backlinks);
   gvr/add-successors(node, last(page.page-versions).references);
   for (node in gvr/nodes(graph))
@@ -167,21 +116,22 @@ define method generate-connections-graph (page :: <wiki-page>) => ();
   let temporary-graph = gvr/generate-graph(graph, node, format: "svg");
   let graph-file = as(<file-locator>, temporary-graph);
   if (file-exists?(graph-file))
-    let destination = as(<file-locator>, concatenate("graphs/", page.title, ".svg"));
+    let destination = as(<file-locator>,
+                         concatenate("graphs/", page.page-title, ".svg"));
     rename-file(graph-file, destination, if-exists: #"replace");
   end if;
 end;
 
 define method extract-references
     (version :: <wiki-page-version>)
- => (references :: <sequence>);
+ => (references :: <sequence>)
   let references = list();
   //TODO: replace by upcoming regex-search-all-strings
   let content = version.content.content;
   let regex = compile-regex("\\[\\[([^\\]]*)\\]\\]");
   let start = 0;
   while (regex-position(regex, content, start: start))
-    let (#rest matches) = regex-search-strings(regex, copy-sequence(content, start: start));
+    let (#rest matches) = regex-search-strings(regex, slice(content, start, #f));
     if (first(matches))
       references := add!(references, second(matches));
     end if;
@@ -191,19 +141,10 @@ define method extract-references
   references;
 end;
 
-define method remove-page
-    (page :: <wiki-page>,
-     #key comment :: <string> = "")
- => ();
-  save-change(<wiki-page-change>, page.title, $remove, comment);
-  remove-key!(storage(<wiki-page>), page.title);
-  dump-data();
-end;
-
 define method rename-page
     (title :: <string>, new-title :: <string>,
      #key comment :: <string> = "")
- => ();
+ => ()
   let page = find-page(title);
   if (page)
     rename-page(page, new-title, comment: comment)
@@ -213,14 +154,9 @@ end;
 define method rename-page
     (page :: <wiki-page>, new-title :: <string>,
      #key comment :: <string> = "")
- => ();
-  let comment = concatenate("was: ", page.title, ". ", comment);
-  remove-key!(storage(<wiki-page>), page.title);
-  page.title := new-title;
-  storage(<wiki-page>)[new-title] := page;
-  save-change(<wiki-page-change>, new-title, $rename, comment);
-  save(page);
-  dump-data();
+ => ()
+  rename(*storage*, page, new-title, comment);
+  page.page-title := new-title;
 end;
 
 
@@ -231,27 +167,23 @@ define generic find-backlinks
 define method find-backlinks
     (page :: <wiki-page>)
  => (backlinks :: <stretchy-vector>);
-  find-backlinks(page.title);
+  find-backlinks(page.page-title);
 end;
 
 define method find-backlinks
     (title :: <string>)
- => (backlinks :: <stretchy-vector>);
+ => (backlinks :: <stretchy-vector>)
   let backlinks = make(<stretchy-vector>);
-  for (page-title in sort(key-sequence(storage(<wiki-page>))))
-    let page = find-page(page-title);
-    if (page & member?(title, last(page.page-versions).references, test: \=))
-      backlinks := add!(backlinks, page);
-    end if;
-  end for; 
-  backlinks;
+  TODO; // maintain link info in a git file for each page
+  backlinks
 end;
 
 define method discussion-page?
     (page :: <wiki-page>)
  => (is? :: <boolean>)
   let (matched?, discussion, title)
-    = regex-search-strings(compile-regex("(Discussion: )(.*)"), page.title);
+    = regex-search-strings(compile-regex("(Discussion: )(.*)"),
+                           page.page-title);
   matched? = #t;
 end;
 
@@ -352,7 +284,7 @@ define body tag list-page-backlinks in wiki
     output("There are no connections to this page.");
   else
     for (backlink in backlinks)
-      set-attribute(page-context(), "backlink", backlink.title);
+      set-attribute(page-context(), "backlink", backlink.page-title);
       set-attribute(page-context(), "backlink-url", permanent-link(backlink));
       do-body();
     end for;
@@ -370,13 +302,13 @@ define method respond-to-get
     let pc = page-context();
     local method page-info (page :: <wiki-page>)
             table(<string-table>,
-                  "title" => page.title,
+                  "title" => page.page-title,
                   "when-published" => standard-date-and-time(page.date-published),
                   "latest-authors" => join(map(user-name, page.latest-authors), ", "))
           end;
     let current-page = get-query-value("page", as: <integer>) | 1;
     let paginator = make(<paginator>,
-                         sequence: map(page-info, find-pages()),
+                         sequence: map(page-info, find-tagged-pages(#[])),
                          page-size: 25,
                          current-page-number: current-page);
     set-attribute(pc, "wiki-pages", paginator);
@@ -386,7 +318,7 @@ end method respond-to-get;
 
 define method do-remove-page (#key title)
   let page = find-page(percent-decode(title));
-  remove-page(page, comment: get-query-value("comment"));
+  delete(*storage*, page, get-query-value("comment") | "");
   redirect-to(page);
 end;
 
@@ -423,9 +355,7 @@ define method show-page-responder
                   element(page.page-versions, string-to-integer(version) - 1,
                           default: #f);
                 end if;
-  dynamic-bind (*page* = page,
-                *version* = version,
-                *page-title* = title)
+  dynamic-bind (*page* = page)
     respond-to-get(case
                      *page* => *view-page-page*;
                      authenticated-user() => *edit-page-page*;
@@ -501,8 +431,8 @@ define method respond-to-post
       // Redisplay the page with errors highlighted.
       respond-to-get(*edit-page-page*, title: title, previewing?: #t);
     else
-      save-page(title, content | "", comment: comment, tags: tags);
-      redirect-to(find-page(title));
+      let page = save-page(title, content | "", comment, tags);
+      redirect-to(page);
     end;
   end;
 end method respond-to-post;
@@ -630,7 +560,7 @@ end;
 define tag show-main-page-title in wiki
     (page :: <wiki-dsp>) ()
   if (*page*)
-    let main-title = regex-replace(*page*.title, compile-regex("^Discussion: "), "");
+    let main-title = regex-replace(*page*.page-title, compile-regex("^Discussion: "), "");
     output("%s", escape-xml(main-title));
   end;
 end tag show-main-page-title;
@@ -639,7 +569,7 @@ end tag show-main-page-title;
 define tag show-discussion-page-title in wiki
     (page :: <wiki-dsp>) ()
   if (*page*)
-    let discuss-title = concatenate("Discussion: ", *page*.title);
+    let discuss-title = concatenate("Discussion: ", *page*.page-title);
     output("%s", escape-xml(discuss-title));
   end;
 end tag show-discussion-page-title;
@@ -648,7 +578,7 @@ define tag show-page-title in wiki
     (page :: <wiki-dsp>)
     ()
   if (*page*)
-    output("%s", escape-xml(*page-title* | *page*.title));
+    output("%s", escape-xml(*page*.page-title));
   end;
 end;
 
@@ -667,7 +597,7 @@ define tag show-page-content in wiki
     = if (get-attribute(page-context(), "content"))
         get-attribute(page-context(), "content")
       elseif (*page*)
-        (*version* | *page*.page-versions.last).content.content
+        *page*.page-content
       elseif (wf/*form* & element(wf/*form*, "content", default: #f))
         wf/*form*["content"];
       else
@@ -684,7 +614,7 @@ end;
 define tag show-version in wiki
     (page :: <wiki-dsp>)
     ()
-  output("%s", *version* | "");
+  output("%s", *page*.page-revision);
 end;
 
 
@@ -711,9 +641,11 @@ define method more-recently-published?
   page1.date-published > page2.date-published
 end;
 
-define method find-pages
-    (#key tags :: <sequence> = #[],  // strings
-          order-by :: <function> = more-recently-published?)
+/// Find pages with the given tags.
+// Ultimately it doesn't makes sense for this to load all pages.
+define method find-tagged-pages
+    (tags :: <sequence>,  // strings
+     #key order-by :: <function> = more-recently-published?)
  => (pages :: <sequence>)
    let pages = value-sequence(storage(<wiki-page>));
    if (~empty?(tags))
@@ -728,7 +660,7 @@ define method find-pages
      pages := sort(pages, test: order-by);
    end;
    pages
-end method find-pages;
+end method find-tagged-pages;
 
 // This is only used is main.dsp now, and only for news.
 // May want to make a special one for news instead.
@@ -743,7 +675,7 @@ define body tag list-pages in wiki
            elseif (tags)
              parse-tags(tags);
            end if;
-  for (page in find-pages(tags: tags | #[]))
+  for (page in find-tagged-pages(tags | #[]))
     dynamic-bind(*page* = page)
       do-body();
     end;
@@ -772,7 +704,9 @@ end;
 
 define named-method latest-page-version? in wiki
     (page :: <wiki-dsp>)
-  *page* & (~*version* | *page*.page-versions.last = *version*)
+  // TODO: (a) check whether this is even needed
+  //       (b) compare against latest git commit hash.
+  *page* & (*page*.page-versions.last = *version*)
 end;
 
 define named-method page-tags in wiki

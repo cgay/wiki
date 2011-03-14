@@ -1,4 +1,6 @@
 Module: %wiki
+Synopsis: User account management
+
 
 define thread variable *user-username* = #f;
 
@@ -6,7 +8,7 @@ define thread variable *user-username* = #f;
 define class <wiki-user> (<wiki-object>, <user>)
 end;
 
-// This is set in main.dylan, via the config file.
+// This is set when the config file is loaded.
 define variable *admin-user* :: false-or(<wiki-user>) = #f;
 
 define wf/object-test (user) in wiki end;
@@ -129,34 +131,25 @@ define method validate-email
   email
 end;
 
-/*
-define method storage-type
-    (type == <wiki-user>)
- => (type :: <type>)
-  <string-table>
-end;
-*/
 
-
-// todo -- MAKE THREAD SAFE
 define method remove-user
     (user :: <wiki-user>, #key comment :: <string> = "")
  => ()
-  remove-key!(storage(<wiki-user>), user.user-name);
-  let message = "Automatic change due to user account removal.";
+  let modified-groups = make(<set>);
   for (group in groups-owned-by-user(user))
     group.group-owner := *admin-user*;
-    save-change(<wiki-user-change>,
-                user.user-name, $remove-group-owner, message)
+    modified-groups := add!(modified-groups, group);
   end;
   for (group in user-groups(user))
     group.group-members := remove!(group.group-members, user);
-    save-change(<wiki-user-change>,
-                user.user-name, $remove-group-member, message);
+    modified-groups := add!(modified-groups, group);
   end;
-  save-change(<wiki-user-change>, user.user-name, $remove, comment);
-  dump-data();
-end;
+  let comment = "Automatic change due to user account removal.";
+  for (group in modified-groups)
+    store(*storage*, group, comment);
+  end;
+  delete(*storage*, user, comment);
+end method remove-user;
 
 
 //// List Users
@@ -174,7 +167,7 @@ define method respond-to-get
                             "admin?" => user.administrator?)
                     end,
                     choose(user-activated?,
-                           value-sequence(storage(<wiki-user>)))));
+                           load-all(*storage*, <wiki-user>))));
   let active-user = authenticated-user();
   set-attribute(pc, "active-user", active-user & active-user.user-name);
   next-method();
@@ -279,13 +272,10 @@ define method respond-to-post
     if (page-has-errors?())
       next-method();
     else
-      save(user);
-      save-change(<wiki-user-change>, new-name, $create, "User created",
-                  authors: list(new-name));
+      store(*storage*, user, "New user created");
       add-page-note("User %s created.  Please follow the link in the confirmation "
                     "email sent to %s to activate the account.",
                     new-name, email);
-      dump-data();
       respond-to-get(*view-user-page*, name: user.user-name);
     end if;
   end if;    
@@ -305,8 +295,7 @@ define function respond-to-user-activation-request
       let key = percent-decode(key);
       if (key = user.user-activation-key)
         user.user-activated? := #t;
-        save-change(<wiki-user-change>, name, $activate, "Account activated",
-                    authors: list(name));
+        store(*storage*, user, "Account activated");
       end;
     end;
     if (user.user-activated?)
@@ -370,7 +359,7 @@ define method respond-to-post
       if (user)
         let comments = make(<stretchy-vector>);
         if (user.user-name ~= new-name)
-          remove-key!(storage(<wiki-user>), name);  // old name
+          remove-key!(*users*, name);  // old name
           user.user-name := new-name;
           add!(comments, format-to-string("renamed to %s", new-name));
         end;
@@ -387,8 +376,7 @@ define method respond-to-post
           add!(comments, format-to-string("%s admin status",
                                           iff(admin?, "added", "removed")));
         end;
-        save(user);
-        save-change(<wiki-user-change>, name, $edit, join(comments, ", "));
+        store(*storage*, user, join(comments, ", "));
         add-page-note("User %s updated.", new-name);
       else
         // new user
@@ -397,12 +385,10 @@ define method respond-to-post
                      password: password,
                      email: email,
                      administrator?: admin?);
-        save(user);
-        save-change(<wiki-user-change>, new-name, $create, "User created");
+        store(*storage*, user, "User created");
         add-page-note("User %s created.", new-name);
         login(realm: *wiki-realm*);
       end;
-      dump-data();
       redirect-to(user);
     end if;
   end if;    
@@ -468,12 +454,11 @@ end;
 define body tag list-users in wiki
     (page :: <wiki-dsp>, do-body :: <function>)
     ()
-  let users = storage(<wiki-user>);
-  if (users.size == 0)
+  if (*users*.size == 0)
     // todo -- quick hack.  replace wiki:list-users with dsp:do
     output("<li>No users</li>");
   else
-    for (user in users)
+    for (user in *users*)
       dynamic-bind(*user* = user)
         do-body();
       end;

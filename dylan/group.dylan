@@ -177,10 +177,10 @@ end;
 define method respond-to-get
     (page :: <list-groups-page>, #key)
   local method group-info (group)
-          table(<string-table>,
-                "name" => group.group-name,
-                "count" => integer-to-string(group.group-members.size),
-                "description" => quote-html(group.group-description))
+          make-table(<string-table>,
+                     "name" => group.group-name,
+                     "count" => integer-to-string(group.group-members.size),
+                     "description" => quote-html(group.group-description))
         end;
   set-attribute(page-context(), "all-groups",
                 map(group-info, with-lock ($group-lock)

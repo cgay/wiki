@@ -23,7 +23,7 @@ three pre-defined groups:
 
 Any access rule may be negated, so that for example "deny anyone"
 or "deny <user>" may be specified.  In the code this is represented
-as a sequence such as #(deny:, <user>).
+as a sequence such as #($deny, <user>).
 
 If no ACLs are set for a page then the default ACLs are used instead.
 (The defaults need to be made configurable.)
@@ -45,13 +45,16 @@ grants or denies the permission.  For example, if an admin or the
 page owner wants to quickly disable a page they could simply add
 "deny anyone" at the front of the ACLs.
 
-Note that admins are always allowed all access.
+Note that admins are always allowed all access.  There is also no
+mechanism to deny access to the owner of a page via acls.  If you
+need to do that, disable the owner's account or change the ownership
+of the page.
 
 Example: Anyone but cgay and group1 can view content
 
-  view-content: list(list(deny:, <user cgay>),
-                     list(deny:, <group group1>),
-                     list(allow:, $anyone))
+  view-content: list(list($deny, <user cgay>),
+                     list($deny, <group group1>),
+                     list($allow, $anyone))
 
 */
 
@@ -65,6 +68,9 @@ define constant $anyone = #"anyone";
 define constant $trusted = #"trusted";
 define constant $owner = #"owner";
 
+define constant $allow = #"allow";
+define constant $deny = #"deny";
+
 // The compiler barfs on this when I uncomment things.
 //
 define constant <rule-target> //:: <type>
@@ -73,7 +79,7 @@ define constant <rule-target> //:: <type>
                <wiki-group>);
 
 define class <rule> (<object>)
-  constant slot rule-action :: one-of(allow:, deny:),
+  constant slot rule-action :: one-of($allow, $deny),
     required-init-keyword: action:;
   constant slot rule-target :: <rule-target>,
     required-init-keyword: target:;
@@ -83,7 +89,7 @@ end;
 define constant $acls-lock :: <simple-lock> = make(<simple-lock>);
 
 define class <acls> (<object>)
-  // Must hold this lock before modifying the the values in any
+  // Must hold this lock before modifying the values in any
   // of the other slots.
   //constant slot acls-lock :: <simple-lock> = make(<simple-lock>);
 
@@ -127,9 +133,9 @@ end method remove-rules-for-target;
 //
 define constant $default-access-controls
   = make(<acls>,
-         view-content: list(make(<rule>, action: allow:, target: $anyone)),
-         modify-content: list(make(<rule>, action: allow:, target: $trusted)),
-         modify-acls: list(make(<rule>, action: allow:, target: $owner)));
+         view-content:   list(make(<rule>, action: $allow, target: $anyone)),
+         modify-content: list(make(<rule>, action: $allow, target: $trusted)),
+         modify-acls:    list(make(<rule>, action: $allow, target: $owner)));
 
 define method has-permission?
     (user :: false-or(<user>),
@@ -173,7 +179,7 @@ define method has-permission?
                         | (target = $owner & page & page.page-owner = user)
                         | (instance?(target, <wiki-group>)
                              & member?(user, target.group-members)))))
-          return(action = allow:)
+          return(action = $allow)
         end if;
       end for;
       #f          // default is no permission if no rule matches
@@ -215,10 +221,10 @@ define method parse-rule
     (rule :: <string>)
  => (rule, errors? :: <boolean>)
   let rule = trim(rule);
-  let action = allow:;
+  let action = $allow;
   if (rule.size > 0)
     if (rule[0] = '!')
-      action := deny:;
+      action := $deny;
       rule := copy-sequence(rule, start: 1);
     end;
     if (rule.size > 0)
@@ -253,8 +259,8 @@ define method unparse-rule
   let action = rule.rule-action;
   let target = rule.rule-target;
   concatenate(select (action)
-                allow: => "";
-                deny:  => "!";
+                $allow => "";
+                $deny  => "!";
               end,
               select (target by instance?)
                 <symbol> => as-lowercase(as(<string>, target));

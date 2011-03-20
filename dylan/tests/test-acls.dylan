@@ -9,19 +9,19 @@ define suite acls-test-suite ()
 end;
 
 define constant $owner-user = make(<wiki-user>,
-                                   username: "owner",
+                                   name: "owner",
                                    password: "owner",
                                    email: "owner",
                                    administrator?: #f);
 
 define constant $plain-user = make(<wiki-user>,
-                                   username: "plain",
+                                   name: "plain",
                                    password: "plain",
                                    email: "admin",
                                    administrator?: #f);
 
 define constant $admin-user = make(<wiki-user>,
-                                   username: "admin",
+                                   name: "admin",
                                    password: "admin",
                                    email: "admin",
                                    administrator?: #t);

@@ -5,6 +5,7 @@ Author: Carl Gay
 
 // See wiki.dylan for the storage protocol generics.
 
+
 // File names inside a git page directory
 define constant $content :: <byte-string> = "content";
 define constant $tags :: <byte-string> = "tags";
@@ -16,6 +17,11 @@ define class <git-storage> (<storage>)
   // The root directory of the wiki data repository, as a string.
   slot git-repository-root :: <string>,
     required-init-keyword: repository-root:;
+
+  // User data is stored in a separate repository so that it can
+  // be maintained separately (more securely) than other data.
+  slot git-user-repository-root :: <string>,
+    required-init-keyword: user-repository-root:;
 
   slot git-executable :: <string>,
     required-init-keyword: executable:;
@@ -45,9 +51,13 @@ define function git
  => (exit-code :: <integer>,
      stdout :: <string>,
      stderr :: <string>)
-  let command = iff(format-args,
-                    apply(format-to-string, command-fmt, format-args),
-                    command-fmt);
+  let command
+    = concatenate(storage.git-executable,
+                  " ",
+                  iff(format-args,
+                      apply(format-to-string, command-fmt, format-args),
+                      command-fmt));
+  format-out("Running command %s\n", command);
   let (exit-code, signal, child, stdout-stream, stderr-stream)
     = run-application(command,
                       asynchronous?: #f,
@@ -88,27 +98,39 @@ end method initialize-storage;
 
 //// Pages
 
-// No load-all method.
-
 /// Load a page from back-end storage.  'name' is the page title.
 /// Return: version -- a git hash code (a string)
 ///
 define method load
-    (storage :: <git-storage>, class == <wiki-page>, name :: <string>,
+    (storage :: <git-storage>, class == <wiki-page>, title :: <string>,
      #key revision = #"newest")
  => (page :: <wiki-page>)
   let page-dir = git-page-directory(title);
 
   // git show master:<page-path>/content
-  local method make-command (filename)
-          format-to-string("%s show %s",
-                           storage.git-executable,
+  // Could also use:
+  //   $ echo git-backend:config.xml | git cat-file --batch
+  //   b0a7106bff6f0249b9e2ea0e5e4d0f282d5217e1 blob 1436
+  //   <?xml version="1.0"?>...
+  // Probably need to use "git log" to get the comment, author, and revision,
+  // and then use "git cat-file" or "git show" to get the content.
+
+  local method show (filename)
+          format-to-string("show %s",
                            make-git-show-arg(storage, page-dir, filename, revision))
         end;
-  let content = git(*storage*, make-command($content));
-  let tags = git(*storage*, make-command($tags));
-  let acls = git(*storage*, make-command($acls));
-  TODO
+  let tags = call-git(storage, show($tags));
+  let acls = call-git(storage, show($acls));
+  let content = call-git(storage, show($content));
+  make(<wiki-page>,
+       title: title,
+       content: content,
+       comment: comment,
+       owner: owner,
+       author: author,
+       revision: revision,
+       tags: git-parse-tags(tags-blob),
+       access-controls: git-parse-acls(acls-blob))
 end method load;
 
 /// Return the git directory for the given page, relative to the
@@ -144,13 +166,6 @@ define method store
   revision
 end method store;
 
-define method store
-    (storage :: <storage>, page :: <wiki-page>, comment :: <string>)
- => (revision :: <string>)
-  TODO;
-end method store;
-
-
 define method delete
     (storage :: <storage>, page :: <wiki-page>, comment :: <string>)
  => ()
@@ -158,7 +173,8 @@ define method delete
 end;
 
 define method rename
-    (storage :: <storage>, page :: <wiki-page>, new-name :: <string>)
+    (storage :: <storage>, page :: <wiki-page>, new-name :: <string>,
+     comment :: <string>)
  => ()
   TODO;
 end;
@@ -169,11 +185,14 @@ end;
 
 /// Load all users from back-end storage.
 /// Returns a collection of <wiki-user>s.
+/// See ../README.rst for a description of the file format.
 ///
 define method load-all
     (storage :: <storage>, class == <wiki-user>)
  => (users :: <collection>)
-  TODO
+  let pathname = git-user-file-pathname(storage);
+  with-open-file(stream = pathname, direction: #"input")
+    iterate loop (line = read-line(stream, on-end-of-stream: #f))
 end method load-all;
 
 define method load
@@ -196,7 +215,8 @@ define method delete
 end;
 
 define method rename
-    (storage :: <storage>, user :: <wiki-user>, new-name :: <string>)
+    (storage :: <storage>, user :: <wiki-user>, new-name :: <string>,
+     comment :: <string>)
  => ()
   TODO;
 end;
@@ -231,7 +251,8 @@ define method delete
 end method delete;
 
 define method rename
-    (storage :: <storage>, group :: <wiki-group>, new-name :: <string>)
+    (storage :: <storage>, group :: <wiki-group>, new-name :: <string>,
+     comment :: <string>)
  => ()
   TODO;
 end method rename;
@@ -243,7 +264,7 @@ end method rename;
 /// Make an argument to pass to the 'git show' command.
 ///
 define function make-git-show-arg
-    (storage :: <git-storage>, page-directory :: <string>, revision)
+    (storage :: <git-storage>, page-directory :: <string>, filename :: <string>, revision)
  => (arg :: <string>)
   if (revision = #"newest")
     format-to-string("%s:%s/%s", storage.git-branch, page-directory, filename)
@@ -253,3 +274,65 @@ define function make-git-show-arg
 end;
 
 
+define constant $newline-regex :: <regex> = compile-regex("[\r\n]+");
+
+/// Parse the content of the "acls" file into an '<acls>' object.
+/// See README.rst for a description of the "acls" file format.
+///
+define function git-parse-acls
+    (blob :: <string>) => (acls :: <acls>)
+  local method parse-rule(rule)
+          let (access, name) = apply(values, split(rule, '@'));
+          let access = select (access by \=)
+                         "allow" => allow:;
+                         "deny" => deny:;
+                         otherwise =>
+                           git-error("Invalid access spec, %=, in ACLs for page %s",
+                                     access, title);
+                       end;
+          let name = select(name by \=)
+                       "anyone" => $anyone;
+                       "trusted" => $trusted;
+                       "owner" => $owner;
+                       otherwise =>
+                         git-error("Invalid name spec, %=, in ACLs for page %s",
+                                   name, title);
+                     end;
+          list(access, name)
+        end;
+  let lines = split(blob, $newline-regex);
+  let view-content = #f;
+  let modify-content = #f;
+  let modify-acls = #f;
+  let owner = #f;
+  for (line in lines)
+    let parts = split(line, ',');
+    if (parts.size > 1)
+      let key = trim(parts[0]);
+      select (key by \=)
+        "owner:" =>
+          owner := find-user(trim(parts[1]));
+        "modify-content:" =>
+          modify-content := map(parse-rule, slice(parts, 1, #f));
+        "modify-acls:" =>
+          modify-acls := map(parse-rule, slice(parts, 1, #f));
+        "view-content:" =>
+          view-content := map(parse-rule, slice(parts, 1, #f));
+        otherwise =>
+          #f;
+      end select;
+    end if;
+  end for;
+  make(<acls>,
+       view-content: view-content | $default-access-controls.view-content-rules,
+       modify-content: modify-content | $default-access-controls.modify-content-rules,
+       modify-acls: modify-acls | $default-access-controls.modify-acls-rules)
+end function git-parse-acls;
+
+define function git-parse-tags
+    (blob :: <string>) => (tags :: <sequence>)
+  // one tag per line...
+  choose(complement(empty?),
+         remove-duplicates!(map(trim, split(blob, $newline-regex)),
+                            test: \=))
+end;

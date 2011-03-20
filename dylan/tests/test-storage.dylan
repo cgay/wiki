@@ -6,11 +6,20 @@ Synopsis: Tests of the storage protocol
 define function make-storage
     () => (storage :: <storage>)
   let pathname = "c:/tmp/test-wiki-storage";
-  remove-directory(pathname);
+  if (file-exists?(pathname))
+    delete-directory(pathname);
+  end;
   make(<git-storage>,
        repository-root: pathname,
-       executable: "c:/program files/git/bin/git.exe",
+       executable: "c:\\Program Files\\Git\\bin\\git.exe",
        branch: "master")
+end;
+
+define function init-storage
+    () => (storage :: <storage>)
+  let storage = make-storage();
+  initialize-storage(storage);
+  storage
 end;
        
 
@@ -26,7 +35,30 @@ define suite user-test-suite ()
 end;
 
 define test test-save/load-user ()
-end;
+  let storage = init-storage();
+  let username = "test";
+
+  check-condition("non-existant user gets error",
+                  <storage-error>,
+                  load(storage, <wiki-user>, username));
+
+  let old-user = make(<wiki-user>,
+                      name: "luser",
+                      password: "password",
+                      email: "luser@opendylan.org",
+                      administrator?: #f,
+                      activation-key: "abc",
+                      activated?: #t);
+  check-no-condition("store user works",
+                     store(storage, old-user, username));
+  let new-user = load(storage, <wiki-user>, username);
+  check-equal("name",     old-user.user-name,           new-user.user-name);
+  check-equal("passward", old-user.user-password,       new-user.user-password);
+  check-equal("email",    old-user.user-email,          new-user.user-email);
+  check-equal("admin?",   old-user.administrator?,      new-user.administrator?);
+  check-equal("actkey",   old-user.user-activation-key, new-user.user-activation-key);
+  check-equal("active?",  old-user.user-activated?,     new-user.user-activated?);
+end test test-save/load-user;
 
 /// Verify that when a user is deleted, any groups they belong to
 /// are updated and any pages they own become owned by the admin user.

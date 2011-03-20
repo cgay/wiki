@@ -1,8 +1,7 @@
 Module: %wiki
 
-// Represents a user-editable wiki page that will be stored by web-framework.
-// Not to be confused with <wiki-dsp>, which is a DSP maintained in our
-// source code tree.
+// Represents a user-editable wiki page revision.  Not to be confused
+// with <wiki-dsp>, which is a DSP maintained in our source code tree.
 //
 define class <wiki-page> (<wiki-object>)
 
@@ -12,23 +11,33 @@ define class <wiki-page> (<wiki-object>)
   slot page-content :: <string>,
     required-init-keyword: content:;
 
+  // Comment entered by the user describing the changes for this revision.
+  slot page-comment :: <string>,
+    required-init-keyword: comment:;
+
+  // The owner has special rights over the page, depending on the ACLs.
+  // The owner only changes if explicitly changed via the edit-acls page.
+  // TODO: move this into <acls>.
   slot page-owner :: <wiki-user>,
     required-init-keyword: owner:;
 
+  // The author is the one who saved this particular revision of the page.
+  slot page-author :: <wiki-user>,
+    required-init-keyword: author:;
+
   // e.g. a git commit hash or a revision number
   slot page-revision :: <string>,
-    init-keyword: revision:;
+    required-init-keyword: revision:;
 
-  slot page-tags :: <sequence> = #(),
-    init-keyword: tags:;
+  // Tags entered by the author when the page was saved.
+  slot page-tags :: <sequence>,
+    required-init-keyword: tags:;
 
-  slot access-controls :: <acls> = $default-access-controls,
-    init-keyword: access-controls:;
+  slot access-controls :: <acls>,
+    required-init-keyword: access-controls:;
 
-  // This is probably not needed with the git back-end?
-  slot page-versions :: <vector> = #[],
-    init-keyword: versions:;
 end class <wiki-page>;
+
 
 define thread variable *page* :: false-or(<wiki-page>) = #f;
 
@@ -62,8 +71,21 @@ end;
 
 define method find-page
     (title :: <string>) => (page :: false-or(<wiki-page>))
+/*
+  element(*pages*, title, default: #f)
+  | begin
+      let loaded-page = load(*storage*, <wiki-user>, title);
+      with-lock ($page-lock)
+        let page = element(*pages*, title, default: #f);
+        if (page)
+          if (loaded-page.creation-date > page.creation-date)
+            *pages*[title] := loaded-page;
+          end
+      end
+    end
+*/
   load(*storage*, <wiki-user>, title)
-end;
+end method find-page;
 
 
 // todo -- Implement this as a wiki page.
@@ -87,6 +109,7 @@ define method save-page
                  owner: authenticated-user());
   end;
   page.page-revision := store(*storage*, page, comment);
+/*
   block ()
     generate-connections-graph(page);
   exception (ex :: <serious-condition>)
@@ -95,13 +118,15 @@ define method save-page
     log-error("Error generating connections graph for page %s: %s",
               title, ex);
   end;
+*/
   page
 end method save-page;
 
+/* Not converted to new git-backed wiki yet...
 define method generate-connections-graph
     (page :: <wiki-page>) => ()
   let graph = make(gvr/<graph>);
-  let node = gvr/create-node(graph, label: page.title);
+  let node = gvr/create-node(graph, label: page.page-title);
   let backlinks = find-backlinks(page);
   backlinks := map(page-title, backlinks);
   gvr/add-predecessors(node, backlinks);
@@ -121,12 +146,13 @@ define method generate-connections-graph
     rename-file(graph-file, destination, if-exists: #"replace");
   end if;
 end;
+*/
 
+/*
 define method extract-references
     (version :: <wiki-page-version>)
  => (references :: <sequence>)
   let references = list();
-  //TODO: replace by upcoming regex-search-all-strings
   let content = version.content.content;
   let regex = compile-regex("\\[\\[([^\\]]*)\\]\\]");
   let start = 0;
@@ -140,6 +166,7 @@ define method extract-references
   end while;
   references;
 end;
+*/
 
 define method rename-page
     (title :: <string>, new-title :: <string>,
@@ -193,26 +220,8 @@ define function redirect-content?
      title :: false-or(<string>))
   let (content, title) = 
     regex-search-strings(compile-regex("^#REDIRECT \\[\\[(.*)\\]\\]"),
-			 content);
+                         content);
   values(content, title);
-end;
-
-define method latest-text
-    (page :: <wiki-page>)
- => (text :: <string>)
-  page.page-versions.last.content.content
-end;
-
-define method latest-tags
-    (page :: <wiki-page>)
- => (tags :: <sequence>)
-  page.page-versions.last.categories
-end;
-
-define method latest-authors
-    (page :: <wiki-page>)
- => (authors :: <sequence>)
-  page.page-versions.last.authors
 end;
 
 
@@ -229,7 +238,7 @@ define method respond-to-get
     set-attribute(page-context(), "title", percent-decode(title));
     set-attribute(page-context(), "page-versions",
                   if (wiki-page)
-                    reverse(wiki-page.page-versions)
+                    reverse(load-all-revisions(*storage*, wiki-page))
                   else
                     #()
                   end);
@@ -242,18 +251,16 @@ end;
 define body tag list-page-versions in wiki
     (page :: <wiki-dsp>, do-body :: <function>)
     ()
-  for (version in get-attribute(page-context(), "page-versions"))
-    let pc = page-context();
-    set-attribute(pc, "author", version.authors.last.user-name);
+  let pc = page-context();
+  for (page in get-attribute(pc, "page-versions"))
+    set-attribute(pc, "author", page.page-author.user-name);
     // todo -- make date format and TZ a user setting.
     set-attribute(pc, "published",
-                  format-date("%e %b %Y %H:%M:%S", version.date-published));
-    let comment = version.comments[0].content.content;
-    if (~comment | comment.empty?)
-      comment := "no comment";
-    end;
-    set-attribute(pc, "comment", comment);
-    set-attribute(pc, "version-number", version.version-number);
+                  format-date("%e %b %Y %H:%M:%S", page.creation-date));
+    set-attribute(pc, "comment", iff(page.page-comment.empty?,
+                                     "-",
+                                     page.page-comment));
+    set-attribute(pc, "version-number", page.page-revision);
     do-body();
   end;
 end tag list-page-versions;
@@ -301,10 +308,10 @@ define method respond-to-get
   else
     let pc = page-context();
     local method page-info (page :: <wiki-page>)
-            table(<string-table>,
-                  "title" => page.page-title,
-                  "when-published" => standard-date-and-time(page.date-published),
-                  "latest-authors" => join(map(user-name, page.latest-authors), ", "))
+            make-table(<string-table>,
+                       "title" => page.page-title,
+                       "when-published" => standard-date-and-time(page.creation-date),
+                       "latest-authors" => page.page-author.user-name)
           end;
     let current-page = get-query-value("page", as: <integer>) | 1;
     let paginator = make(<paginator>,
@@ -371,17 +378,16 @@ end;
 define method respond-to-get
     (page :: <edit-page-page>, #key title :: <string>, previewing?)
   let title = percent-decode(title);
+  let pc = page-context();
   if (authenticated-user())
-    set-attribute(page-context(), "title", title);
-    set-attribute(page-context(), "previewing?", previewing?);
+    set-attribute(pc, "title", title);
+    set-attribute(pc, "previewing?", previewing?);
     dynamic-bind (*page* = find-page(title))
       if (*page*)
-        let content = get-query-value("content")
-                        | *page*.page-versions.last.content.content;
-        let pc = page-context();
+        let content = get-query-value("content") | *page*.page-content;
         set-attribute(pc, "content", content);
         set-attribute(pc, "owner", *page*.page-owner);
-        set-attribute(pc, "tags", unparse-tags(*page*.latest-tags));
+        set-attribute(pc, "tags", unparse-tags(*page*.page-tags));
       end;
       next-method();
     end;
@@ -444,23 +450,26 @@ define class <view-diff-page> (<wiki-dsp>) end;
 // Note that in the first case n is the newer version and in the latter
 // case n is the older version.
 //
+// TODO:
 define method respond-to-get
     (page :: <view-diff-page>,
      #key title :: <string>,
           version1 :: <string>,
           version2 :: false-or(<string>))
+
+// git note: haven't converted this yet because instead of the obvious thing
+// (using git hash codes for revisions) we may want to continue using 
+// integers.  But they would be used as part of refspecs e.g. n revisions
+// before the current rev.  But maybe that's not good because someone could
+// save a new revision and cause the relative refs to be incorrect.
+
   let title = percent-decode(title);
   dynamic-bind (*page* = find-page(title))  // only for <show-page-title/>
     if (*page*)
       block (return)
         let pc = page-context();
-        let ix1 = string-to-integer(version1) - 1;
-        let ix2 = iff(version2, string-to-integer(version2) - 1, ix1 - 1);
-        let (ix1, ix2) = values(min(ix1, ix2), max(ix1, ix2));
-        set-attribute(pc, "version1", ix1 + 1);
-        set-attribute(pc, "version2", ix2 + 1);
-        let old-rev = element(*page*.page-versions, ix1, default: #f);
-        let new-rev = element(*page*.page-versions, ix2, default: #f);
+        let old-rev = #f;
+        let new-rev = #f;
         if (~old-rev)
           add-page-error("%s revision #%s does not exist.", title, ix1 + 1);
         end;
@@ -468,8 +477,11 @@ define method respond-to-get
           add-page-error("%s revision #%s does not exist.", title, ix2 + 1);
         end;
         if (old-rev & new-rev)
-          let seq1 = split(old-rev.content.content, '\n');
-          let seq2 = split(new-rev.content.content, '\n');
+
+// Clearly we want to use "git diff" here.
+
+          let seq1 = split(old-rev.page-content, '\n');
+          let seq2 = split(new-rev.page-content, '\n');
           set-attribute(pc, "diffs", sequence-diff(seq1, seq2));
           // sequence-diff doesn't hang onto the actual lines, only indexes,
           // so store them too...
@@ -626,7 +638,7 @@ define body tag list-page-tags in wiki
   if (*page*)
     // Is it correct to be using the tags from the newest page version?
     // At least this DSP tag should be called show-latest-page-tags ...
-    for (tag in latest-tags(*page*))
+    for (tag in *page*.page-tags)
       dynamic-bind(*tag* = tag)
         do-body();
       end;
@@ -638,28 +650,28 @@ end;
 
 define method more-recently-published?
     (page1 :: <wiki-page>, page2 :: <wiki-page>)
-  page1.date-published > page2.date-published
+  page1.creation-date > page2.creation-date
 end;
 
 /// Find pages with the given tags.
-// Ultimately it doesn't makes sense for this to load all pages.
 define method find-tagged-pages
     (tags :: <sequence>,  // strings
      #key order-by :: <function> = more-recently-published?)
  => (pages :: <sequence>)
-   let pages = value-sequence(storage(<wiki-page>));
-   if (~empty?(tags))
-     pages := choose(method (page)
-                       every?(rcurry(member?, page.page-versions.last.categories,
-                                     test:, \=),
-                              tags)
-                     end,
-                     pages);
-   end;
-   if (order-by)
-     pages := sort(pages, test: order-by);
-   end;
-   pages
+  // TODO: Obviously this doesn't scale.   
+  let pages = value-sequence(load-all(*storage*, <wiki-page>));
+  if (~empty?(tags))
+    pages := choose(method (page)
+                      every?(rcurry(member?, page.page-versions.last.categories,
+                                    test:, \=),
+                             tags)
+                    end,
+                    pages);
+  end;
+  if (order-by)
+    pages := sort(pages, test: order-by);
+  end;
+  pages
 end method find-tagged-pages;
 
 // This is only used is main.dsp now, and only for news.
@@ -686,8 +698,9 @@ define body tag list-page-authors in wiki
     (page :: <wiki-dsp>, do-body :: <function>)
     ()
   if (*page*)
-    for (author in *page*.authors)
-      dynamic-bind(*user* = author)
+    // TODO: This is extremely expensive!
+    for (page in load-all-revisions(*page*))
+      dynamic-bind(*user* = page.page-author)
         do-body();
       end;
     end for;
@@ -712,7 +725,7 @@ end;
 define named-method page-tags in wiki
     (page :: <wiki-dsp>)
   // todo -- show tags for the specific page version being displayed!
-  *page* & sort(*page*.latest-tags) | #[]
+  *page* & sort(*page*.page-tags) | #[]
 end;
 
 

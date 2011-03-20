@@ -4,7 +4,8 @@ Author: turbo24prg
 define library wiki
   use collection-extensions,
     import: { sequence-diff };
-  use collections;
+  use collections,
+    import: { set, table-extensions };
   use command-line-parser;
   use common-dylan,
     import: { common-extensions };
@@ -52,12 +53,8 @@ end;
 
 define module %wiki
   use changes,
-    rename: { published => date-published,
-              label => category-label },
+    prefix: "wf/",
     exclude: { <uri> };
-  use sequence-diff;
-  use collections,
-    import: { <set> };
   use command-line-parser;
   use common-extensions,
     exclude: { format-to-string };
@@ -74,18 +71,32 @@ define module %wiki
     exclude: { <http-server>, <url> };
   use operating-system;
   use permission;
+  use sequence-diff;
+  use set,
+    import: { <set> };
   use simple-xml;
   use smtp-client;
   use streams;
   use strings,
     import: { trim };
   use substring-search;
-  use table-extensions;
+  use table-extensions,
+    rename: { table => make-table };
   use threads;
   use regular-expressions;
   use uncommon-dylan;
   use uri;
-  use users;
+  use users,
+    export: {
+      <wiki-user>,
+      user-name,
+      user-password,
+      user-email,
+      administrator?,
+      user-activation-key,
+      user-activated?
+      };
+
   use web-framework,
     prefix: "wf/";
   use wiki;
@@ -109,10 +120,31 @@ define module %wiki
     $view-content, $modify-content, $modify-acls,
     $anyone, $trusted, $owner,
     $default-access-controls,
-    has-permission?,
+    has-permission?;
+
+  // Storage
+  export
+    <storage>,
+    <git-storage>,
+    <storage-error>,
+    initialize-storage,
+    load,
+    load-all,
+    store,
+    delete,
+    rename;
     
-    <wiki-user>,
+  // Groups
+  export
+    <wiki-group>;
+
+  // Pages
+  export
     <wiki-page>;
+
+  // Users (the other bindings are exported from the users module, above)
+  export
+    <wiki-user>;
 
 end module %wiki;
 

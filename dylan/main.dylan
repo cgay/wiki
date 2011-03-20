@@ -265,8 +265,10 @@ define function add-wiki-responders
   add("/recent-changes",
       make(<recent-changes-page>, source: "list-recent-changes.dsp"),
       url-name: "wiki.recent-changes");
+  /* TODO:
   add("/feed/{type?}/{name?}", function-resource(atom-feed-responder),
       url-name: "wiki.atom-feed");
+  */
 
   add("/user/list", *list-users-page*,
       url-name: "wiki.user.list");

@@ -2,8 +2,7 @@ Module: wiki-test-suite
 Author: Carl Gay
 
 
-define suite wiki-test-suite
-    (setup-function: start-sockets)
+define suite wiki-test-suite ()
   suite storage-test-suite;
   suite acls-test-suite;
 end;

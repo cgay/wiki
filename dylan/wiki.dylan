@@ -2,28 +2,43 @@ Module: %wiki
 
 define constant $wiki-version :: <string> = "2009.12.04"; // YYYY.mm.dd
 
+
+// If you need to hold more than one of these locks, acquire them in
+// this order: $group-lock, $user-lock, $page-lock.
+
 /// All users are loaded from storage at startup and stored in this collection.
 ///
 // TODO: make case insensitive
 define variable *users* :: <string-table> = make(<string-table>);
 
-/// Hold this when modifying *users*.  TODO: use it
-define constant $users-lock :: <lock> = make(<lock>);
+/// Hold this when modifying *users*.
+define constant $user-lock :: <lock> = make(<lock>);
+
 
 /// All groups are loaded from storage at startup and stored in this collection.
 ///
 define variable *groups* :: <string-table> = make(<string-table>);
 
-/// Hold this when modifying *groups*.  TODO: use it.
+/// Hold this when modifying *groups*.
 define constant $group-lock :: <lock> = make(<lock>);
 
-/// Hold this when modifying *users*.  TODO: use it.
-define constant $user-lock :: <lock> = make(<lock>);
 
+/// Pages are stored here as they are lazily loaded.  find-page first
+/// looks here and if not found, loads the page and stores it here,
+/// keyed by page title.
+///
+define variable *pages* :: <string-table> = make(<string-table>);
+
+/// Hold this when modifying *pages*.
+define constant $page-lock :: <lock> = make(<lock>);
+
+
+
 /// All objects store in the wiki (pages, users, groups)
 /// must subclass this.
 ///
 define class <wiki-object> (<object>)
+  constant slot creation-date :: <date> = current-date();
 end;
 
 // Prefix for all wiki URLs.  Set to "" for no prefix.
@@ -90,8 +105,6 @@ define generic load
      #key)
  => (obj :: <wiki-object>);
 
-// This probably won't be supported for pages since it would be so expensive.
-// I expect to load all users and groups at startup though.
 define generic load-all
     (storage :: <storage>, class :: subclass(<wiki-object>))
  => (objects :: <collection>);
@@ -106,7 +119,7 @@ define generic delete
  => ();
 
 define generic rename
-    (storage :: <storage>, obj :: <wiki-object>, new-name :: <string>)
+    (storage :: <storage>, obj :: <wiki-object>, new-name :: <string>, comment :: <string>)
  => ();
 
 /// This is what the above methods should signal if they can't fullfill
@@ -138,14 +151,14 @@ end;
 define tag show-version-published in wiki
     (page :: <wiki-dsp>)
     (formatted :: <string>)
-  output("%s", format-date(formatted, *page*.date-published));
+  output("%s", format-date(formatted, *page*.creation-date));
 end;
 
 define tag show-page-published in wiki
     (page :: <wiki-dsp>)
     (formatted :: <string>)
   if (*page*)
-    output("%s", format-date(formatted, *page*.date-published));
+    output("%s", format-date(formatted, *page*.creation-date));
   end if;
 end;
 
@@ -173,7 +186,7 @@ define method respond-to-get
     (page :: <recent-changes-page>, #key)
   let changes = sort(wiki-changes(),
                      test: method (change1, change2)
-                             change1.date-published > change2.date-published   
+                             change1.creation-date > change2.creation-date   
                            end);
   let page-number = get-query-value("page", as: <integer>) | 1;
   let paginator = make(<paginator>,
@@ -204,10 +217,10 @@ define body tag list-recent-changes in wiki
   let previous-change = #f;
   let paginator :: <paginator> = get-attribute(pc, "recent-changes");
   for (change in paginator)
-    set-attribute(pc, "day", standard-date(change.date-published));
+    set-attribute(pc, "day", standard-date(change.creation-date));
     set-attribute(pc, "previous-day",
-                  previous-change & standard-date(previous-change.date-published));
-    set-attribute(pc, "time", standard-time(change.date-published));
+                  previous-change & standard-date(previous-change.creation-date));
+    set-attribute(pc, "time", standard-time(change.creation-date));
     set-attribute(pc, "permalink", as(<string>, permanent-link(change)));
     set-attribute(pc, "change-class", change.change-type-name);
     set-attribute(pc, "title", change.title);

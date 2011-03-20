@@ -1,5 +1,9 @@
 Module: %wiki
-Synopsis: User account management
+Synopsis: User account management.
+
+
+// User data is stored in a separate git repository so that it can
+// be maintained under stricter security than other data.
 
 
 define thread variable *user-username* = #f;
@@ -162,9 +166,9 @@ define method respond-to-get
   let pc = page-context();
   set-attribute(pc, "active-users",
                 map(method (user)
-                      table(<string-table>,
-                            "name" => user.user-name,
-                            "admin?" => user.administrator?)
+                      make-table(<string-table>,
+                                 "name" => user.user-name,
+                                 "admin?" => user.administrator?)
                     end,
                     choose(user-activated?,
                            load-all(*storage*, <wiki-user>))));

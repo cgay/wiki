@@ -47,26 +47,67 @@ You will need to tweak these values in the config file:
 Data File Layout
 ================
 
-All wiki data except for user accounts are stored in a git repository.
-The files are laid out as follows::
+All wiki data are stored in a git repository.  "Public" data is stored
+in one repository and "private" data in another.  The only private
+data is the user database.  Pages and groups are stored in the public
+repo.
 
-  <repo-root>/
-    groups
-    sandboxes
+In order not to end up with too many files in a single directory
+(which may just be a superstition these days, and is really only a
+worry for pages anyway) users, groups, and pages are divided into
+subdirectories using the first few letters of their name/title.  e.g.,
+a page entitled "Green Stripe" would be stored in the directory named
+``sandboxes/main/Gre/Green Stripe/``.  Similarly for users and groups,
+although they use a shorter prefix on the theory that there will be a
+lot fewer of them.
+
+Example::
+
+  <public-repo-root>/
+    groups/
+      a/
+        <a-group-1>
+        <a-group-2>
+	...
+      b/
+        <b-group-1>
+        <b-group-2>
+	...
+      c/
+      ...
+        
+    pages/
       <sandbox-1>/
-        <page-name-1>/content  # page markup
-        <page-name-1>/tags     # page tags, one per line
-        <page-name-1>/acls     # page ACLs, one per line
-        <page-name-2>/content
-        <page-name-2>/tags
-        <page-name-2>/acls
-        ...
+        <prefix-1>/
+	  <page-name-1>/content  # page markup
+	  <page-name-1>/tags     # page tags
+	  <page-name-1>/acls     # page ACLs
+	  <page-name-2>/content
+	  <page-name-2>/tags
+	  <page-name-2>/acls
+	  ...
+	<prefix-2>/
+	  ...
       <sandbox-2>/
-        <page-name-1>/content
-        <page-name-1>/tags
-        <page-name-1>/acls
-        ...
-    
+        <prefix-1>/
+	  <page-name-1>/content
+	  <page-name-1>/tags
+	  <page-name-1>/acls
+	  ...
+
+  <private-repo-root>/
+    users/
+      a/
+        <a-user-1>
+	<a-user-2>
+	...
+      b/
+        <b-user-1>
+	<b-user-2>
+	...
+      ...
+      z/
+
 The default sandbox name is "main" and currently there is no way to
 create new sandboxes.  In some other wikis these would be called
 "wikis".  The format of each file is described below.
@@ -99,17 +140,16 @@ acls
     and "$owner" means the page owner.  "$" is not allowed in user or group
     names so there is no conflict.
 
-groups
+<a-group-1>
     name:owner:member1:member2:...
     <n-bytes>
     ...description in n bytes...
 
-
-
-users
+<a-user-1>
     name1:admin?:password:email:creation-date:activation-key:active?
     name2:...
     ...
 
-    Password is stored in base-64 for now, to be slightly better than
-    clear text.  This must be improved.  Email is also in base-64.
+    Passwords are stored in base-64 for now, to be slightly better
+    than clear text.  This must be improved.  Email is also in
+    base-64.

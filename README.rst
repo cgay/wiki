@@ -141,14 +141,14 @@ acls
     names so there is no conflict.
 
 <a-group-1>
+    iso8601-creation-date
     name:owner:member1:member2:...
     <n-bytes>
     ...description in n bytes...
 
 <a-user-1>
-    name1:admin?:password:email:creation-date:activation-key:active?
-    name2:...
-    ...
+    iso8601-creation-date
+    name1:admin?:password:email:activation-key:active?
 
     Passwords are stored in base-64 for now, to be slightly better
     than clear text.  This must be improved.  Email is also in

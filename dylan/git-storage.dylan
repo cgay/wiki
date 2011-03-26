@@ -5,8 +5,6 @@ Author: Carl Gay
 
 // See wiki.dylan for the storage protocol generics.
 
-// Pathname hacking is generally done with strings, not locators.
-
 // TODO: anywhere that creates a directory or file needs to "git add" it.
 
 // TODO: locking strategy.  Ensure that only one instance of the wiki
@@ -38,18 +36,23 @@ define constant $newline-regex :: <regex> = compile-regex("[\r\n]+");
 define constant $whitespace-regex :: <regex> = compile-regex("[\r\n\t]");
 
 
+define variable *pages-directory* :: false-or(<directory-locator>) = #f;
+define variable *users-directory* :: false-or(<directory-locator>) = #f;
+define variable *groups-directory* :: false-or(<directory-locator>) = #f;
+
+
 define class <git-storage> (<storage>)
 
   // The root directory of the wiki data repository, as a string.
-  slot git-repository-root :: <string>,
+  constant slot git-repository-root :: <directory-locator>,
     required-init-keyword: repository-root:;
 
   // User data is stored in a separate repository so that it can
   // be maintained separately (more securely) than other data.
-  slot git-user-repository-root :: <string>,
+  constant slot git-user-repository-root :: <directory-locator>,
     required-init-keyword: user-repository-root:;
 
-  slot git-executable :: <string>,
+  constant slot git-executable :: <file-locator>,
     required-init-keyword: executable:;
 
 end class <git-storage>;
@@ -77,32 +80,25 @@ define method initialize-storage
   // initialized repository, so we don't check whether it has already
   // been done first.
   call-git(storage, "init");
+
+  *pages-directory* := subdirectory-locator(storage.git-repository-root, "pages");
+  *users-directory* := subdirectory-locator(storage.git-user-repository-root, "users");
+  *groups-directory* := subdirectory-locator(storage.git-repository-root, "groups");
+
+  let created? = (create-directories(*pages-directory*)
+                  | create-directories(*groups-directory*));
+  if (created?)
+    git-commit(storage, storage.git-repository-root, "Created initial directories");
+  end;
+
+  let created? = create-directories(*users-directory*);
+  if (created?)
+    git-commit(storage, storage.git-user-repository-root, "Created initial directories");
+  end;
 end method initialize-storage;
 
 
 //// Pages
-
-/// Return the git directory for the given page, relative to the
-/// repository root.
-define function git-page-storage-pathname
-    (title :: <string>) => (directory :: <string>)
-  let len :: <integer> = title.size;
-  if (len = 0)
-    git-error("Zero length page title not allowed.");
-  else
-    // Use first three (or fewer) letters to divide pages into a broader
-    // directory structure.
-    // TODO: for now we hard-code the "main" domain, until we support
-    //       multiple domains/wikis/whatever.
-    let prefix = slice(title, 0, $page-prefix-size);
-    if (len < $page-prefix-size)
-      prefix := concatenate(prefix, make(<byte-string>,
-                                         size: $page-prefix-size - len,
-                                         fill: '_'));
-    end;
-    sformat("pages/%s/%s/%s", $default-sandbox-name, prefix, title)
-  end
-end function git-page-storage-pathname;
 
 /// Load a page from back-end storage.  'name' is the page title.
 /// Return: version -- a git hash code (a string)
@@ -111,18 +107,22 @@ define method load
     (storage :: <git-storage>, class == <wiki-page>, title :: <string>,
      #key revision = #"newest")
  => (page :: <wiki-page>)
-  let page-dir = git-page-storage-pathname(title);
-  let tags = git-get-blob(storage, pathname-join(page-dir, $tags), revision);
-  let acls = git-get-blob(storage, pathname-join(page-dir, $acls), revision);
-  let content = git-get-blob(storage, pathname-join(page-dir, $content), revision);
+  let (actual-revision, author, creation-date, comment)
+    = git-log-one(storage, content-file, revision);
+  let page-dir = git-page-storage-directory(storage, title);
+  let content-file = file-locator(page-dir, $content);
+  let tags = git-load-blob(storage, file-locator(page-dir, $tags), actual-revision);
+  let acls = git-load-blob(storage, file-locator(page-dir, $acls), actual-revision);
+  let content = git-load-blob(storage, content-file, actual-revision);
   let (owner, acls) = git-parse-acls(acls, title);
   make(<wiki-page>,
+       creation-date: creation-date,
        title: title,
        content: content,
        comment: comment,
        owner: owner,
        author: author,
-       revision: revision,
+       revision: actual-revision,
        tags: git-parse-tags(tags),
        access-controls: acls)
 end method load;
@@ -130,19 +130,14 @@ end method load;
 define method store
     (storage :: <storage>, page :: <wiki-page>, comment :: <string>)
  => (revision :: <string>)
-  // Create the directories
-  // Write the files
-  // git commit
-  let pathname :: <string> = git-page-storage-pathname(storage, page);
-  let dir? = file-exists?(dirname(pathname));
-  if (~dir?)
-    create-directory(dirname(pathname));
-  end;
-  with-open-file (stream = pathname, direction: #"output",
-                  if-exists: #"overwrite")
-    git-write-user(stream, user);
-  end;
-  git-commit(storage, pathname, comment)
+  let page-dir = git-page-storage-directory(storage, page.page-title);
+  create-directories(page-dir);
+
+  git-store-blob(file-locator(page-dir, $content), page.page-content);
+  git-store-blob(file-locator(page-dir, $tags), tags-to-string(page.page-tags));
+  git-store-blob(file-locator(page-dir, $acls), acls-to-string(page.access-controls));
+
+  git-commit(storage, page-dir, comment)
 end method store;
 
 define method delete
@@ -157,6 +152,25 @@ define method rename
  => ()
   TODO;
 end;
+
+define function git-page-storage-directory
+    (storage :: <git-storage>, title :: <string>)
+ => (directory :: <directory-locator>)
+  let len :: <integer> = title.size;
+  if (len = 0)
+    git-error("Zero length page title not allowed.");
+  else
+    // Use first three (or fewer) letters to divide pages into a broader
+    // directory structure.
+    let prefix = slice(title, 0, $page-prefix-size);
+    if (len < $page-prefix-size)
+      prefix := concatenate(prefix, make(<byte-string>,
+                                         size: $page-prefix-size - len,
+                                         fill: '_'));
+    end;
+    subdirectory-locator(*pages-directory*, $default-sandbox-name, prefix, title)
+  end
+end function git-page-storage-directory;
 
 
 
@@ -182,7 +196,7 @@ define method load-all
                           users);
           end;
         end;
-  do-object-files(git-user-storage-pathname(storage), load-user);
+  do-object-files(*users-directory*, <wiki-user>, load-user);
   reverse!(users)
 end method load-all;
 
@@ -203,35 +217,25 @@ end function git-parse-user;
 define method store
     (storage :: <storage>, user :: <wiki-user>, comment :: <string>)
  => (revision :: <string>)
-  let pathname :: <string> = git-user-storage-pathname(storage, user);
-  let dir? = file-exists?(dirname(pathname));
-  if (~dir?)
-    create-directory(dirname(pathname));
-  end;
-  with-open-file (stream = pathname, direction: #"output",
-                  if-exists: #"overwrite")
-    git-write-user(stream, user);
-  end;
-  git-commit(storage, pathname, comment)
+  let file = git-user-storage-file(storage, user.user-name);
+  create-directories(file);
+  git-store-blob(file,
+                 sformat("%s\n%s:%s:%s:%s:%s:%s\n",
+                         git-encode-date(user.creation-date),
+                         user.user-name,
+                         git-encode-boolean(user.administrator?),
+                         user.user-password,  // in base-64 (for now)
+                         user.user-email,     // already in base-64
+                         user.user-activation-key,
+                         git-encode-boolean(user.user-activated?)));
+  git-commit(storage, file, comment)
 end method store;
 
-define function git-write-user
-    (stream :: <stream>, user :: <wiki-user>) => ()
-  format(stream,
-         "%s\n%s:%s:%s:%s:%s:%s\n",
-         git-encode-date(user.creation-date),
-         user.user-name,
-         git-encode-boolean(user.administrator?),
-         user.user-password,  // in base-64 (for now)
-         user.user-email,     // already in base-64
-         user.user-activation-key,
-         git-encode-boolean(user.user-activated?));
-end function git-write-user;
-
-define function git-user-storage-pathname
-    (storage :: <git-storage>, user :: <wiki-user>)
+define function git-user-storage-file
+    (storage :: <git-storage>, name :: <string>)
  => (pathname :: <string>)
-  sformat("users/%c/%s", user.user-name[0], user.user-name)
+  file-locator(subdirectory-locator(*users-directory*, slice(name, 0, 1)),
+               name)
 end;
 
 
@@ -250,7 +254,7 @@ define method load-all
  => (groups :: <collection>)
   let groups = #();
   local method load-group(file :: <file-locator>)
-          with-open-file(stream = pathname, direction: #"input")
+          with-open-file(stream = file, direction: #"input")
             let creation-date    = read-line(stream, on-end-of-stream: #f);
             let people           = read-line(stream, on-end-of-stream: #f);
             let description-size = read-line(stream, on-end-of-stream: #f);
@@ -260,7 +264,7 @@ define method load-all
                            groups);
           end;
         end;
-  do-object-files(git-group-storage-pathname(storage), load-group);
+  do-object-files(*groups-directory*, <wiki-group>, load-group);
   reverse!(groups)
 end;
 
@@ -284,29 +288,18 @@ end function git-parse-group;
 define method store
     (storage :: <storage>, group :: <wiki-group>, comment :: <string>)
  => (revision :: <string>)
-  let pathname :: <string> = git-group-storage-pathname(storage, group);
-  let dir? = file-exists?(dirname(pathname));
-  if (~dir?)
-    create-directory(dirname(pathname));
-  end;
-  with-open-file (stream = pathname, direction: #"output",
-                  if-exists: #"overwrite")
-    git-write-group(stream, group);
-  end;
-  git-commit(storage, pathname, comment)
+  let group-file = git-group-storage-file(storage, group.group-name);
+  create-directories(group-file);
+  git-store-blob(group-file,
+                 sformat("%s\n%s:%s:%s\n%d\n%s\n",
+                         git-encode-date(group.creation-date),
+                         group.group-name,
+                         group.group-owner.user-name,
+                         join(map(user-name, group.group-members), ":"),
+                         integer-to-string(group.group-description.size),
+                         group.group-description));
+  git-commit(storage, group-file, comment)
 end method store;
-
-define method git-write-group
-    (stream :: <stream>, group :: <wiki-group>) => ()
-  format(stream,
-         "%s\n%s:%s:%s\n%d\n%s\n",
-         git-encode-date(group.creation-date),
-         group.group-name,
-         group.group-owner.user-name,
-         join(map(user-name, group.group-members), ":"),
-         group.group-description.size,
-         group.group-description);
-end method git-write-group;
 
 define method delete
     (storage :: <storage>, group :: <wiki-group>, comment :: <string>)
@@ -321,12 +314,12 @@ define method rename
   TODO;
 end method rename;
 
-define function git-group-storage-pathname
-    (storage :: <git-storage>, group :: <wiki-group>)
+define function git-group-storage-file
+    (storage :: <git-storage>, name :: <string>)
  => (pathname :: <string>)
-  sformat("groups/%c/%s", group.group-name[0], group.group-name)
+  file-locator(subdirectory-locator(*groups-directory*, slice(name, 0, 1)),
+               name)
 end;
-
 
 
 //// Utilities
@@ -379,25 +372,35 @@ end function call-git;
 // Probably need to use "git log" to get the comment, author, and revision,
 // and then use "git cat-file" or "git show" to get the content.
 
-define function git-get-blob
+define function git-load-blob
     (storage :: <git-storage>, pathname :: <string>, revision)
  => (blob :: <string>)
   let (stdout, stderr, exit-code)
     = call-git(storage,
                sformat("show %s",
                        if (revision = #"newest")
+                         // TODO: also return the revision
                          sformat("master:%s", pathname)
                        else
                          TODO
                        end));
   stdout
-end function git-get-blob;
+end function git-load-blob;
+
+define function git-store-blob
+    (file :: <file-locator>, blob :: <string>)
+ => ()
+  with-open-file (stream = file, direction: #"output", if-exists: #"overwrite")
+    write(blob, stream);
+  end;
+end function git-store-blob;
 
 /// Parse the content of the "acls" file into an '<acls>' object.
 /// See README.rst for a description of the "acls" file format.
 ///
 define function git-parse-acls
-    (blob :: <string>, title :: <string>) => (acls :: <acls>)
+    (blob :: <string>, title :: <string>)
+ => (owner :: <wiki-user>, acls :: <acls>)
   local method parse-rule(rule)
           let (access, name) = apply(values, split(rule, '@'));
           let access = select (access by \=)
@@ -479,13 +482,16 @@ end;
 /// i.e., each page directory, user file, or group file.
 ///
 define function do-object-files
-    (root :: <string>, class :: subclass(<wiki-object>), fun :: <function>) => ()
+    (root :: <directory-locator>,
+     class :: subclass(<wiki-object>),
+     fun :: <function>)
+ => ()
   local method do-object-dir (directory, name, type)
           // called once for each file/dir in a prefix directory
           if (class = <wiki-page> & type = #"directory")
-            fun(merge-locators(as(<directory-locator>, name), directory));
+            fun(subdirectory-locator(directory, name));
           elseif (type = #"file")
-            fun(merge-locators(as(<file-locator>, name), directory));
+            fun(file-locator(directory, name));
           end;
         end,
         method do-prefix-dir (directory, name, type)
@@ -497,14 +503,11 @@ define function do-object-files
   do-directory(do-prefix-dir, root);
 end function do-object-files;
 
-/// Commit a file or directory.
-/// Arguments:
-///   pathname - a path relative to the repository root
 define function git-commit
-    (storage :: <git-storage>, pathname :: <string>, comment :: <string>)
+    (storage :: <git-storage>, locator :: <locator>, comment :: <string>)
  => (revision :: <string>)
   let (stdout, stderr, exit-code)
-    = call-git(storage, sformat("commit -m '%s' %s", comment, pathname));
+    = call-git(storage, sformat("commit -m '%s' %s", comment, as(<string>, locator)));
   // The stdout from git commit looks like this:
   //     [git-backend 804b716] ...commit comment...
   //     1 files changed, 64 insertions(+), 24 deletions(-)
@@ -522,3 +525,36 @@ define function git-commit
     end;
   end;
 end function git-commit;
+
+
+//// Pathnames
+
+define method file-locator
+    (directory :: <directory-locator>, name :: <string>)
+ => (file :: <file-locator>)
+  merge-locators(as(<file-locator>, name), directory)
+end;
+
+define method create-directories
+    (loc :: <file-locator>) => (any-created? :: <boolean>)
+  create-directories(locator-directory(loc))
+end;
+
+// because locator-directory may return #f
+define method create-directories
+    (loc == #f) => (any-created? :: <boolean>)
+  #f
+end;
+
+define method create-directories
+    (loc :: <directory-locator>) => (any-created? :: <boolean>)
+  iterate loop (dir = loc)
+    if (~file-exists?(dir))
+      // recursion bottoms out at the root directory, which exists
+      create-directories(locator-directory(dir));
+      create-directory(locator-directory(dir), locator-name(dir));
+      #t
+    end
+  end
+end method create-directories;
+

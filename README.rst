@@ -12,13 +12,8 @@ following features:
   * Access controls -- each object in the wiki can be restricted to
     being viewed or edited by specific sets of users.
 
-How to Run
-==========
-
-Build the library and then run it like this::
-
-   wiki --config config.xml
-
+Configuration
+=============
 
 You will need to tweak these values in the config file:
 
@@ -32,8 +27,21 @@ You will need to tweak these values in the config file:
 
      <wiki repository = "/home/you/wiki-data" ...>
 
-* If the "git" executable is not on the path of the user running the
-  wiki, then you need to specify it in the <wiki> element::
+* *koala.wiki.user-repository* -- Make this point to the root directory
+  of the user data repository.  This is separate from the page and group
+  data so that it can easily be backed-up separately (e.g., by pushing
+  to a different remote).  Example::
+
+     $ cd
+     $ mkdir wiki-user-data
+     $ cd wiki-user-data
+     $ git init
+
+     <wiki user-repository = "/home/you/wiki-user-data" ...>
+
+* *koala.wiki.git-executable* -- If the "git" executable is not on the
+  path of the user running the wiki, then you need to specify it in
+  the <wiki> element::
 
      <wiki git-executable = "/usr/bin/git" ... />
 
@@ -41,6 +49,14 @@ You will need to tweak these values in the config file:
   (I guess this should be made relative to <server-root>.)
 
 * *koala.wiki.administrator.password* -- Choose a password you like.
+
+
+Startup
+=======
+
+Build the library and then run it like this::
+
+   wiki --config config.xml
 
 
 

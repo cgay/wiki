@@ -17,8 +17,8 @@ Configuration
 
 You will need to tweak these values in the config file:
 
-* *koala.wiki.repository* -- Make it point to the root directory of
-   your wiki git repository.  Example::
+* **koala.wiki.repository** -- Make it point to the root directory of
+  your wiki git repository.  Example::
 
      $ cd
      $ mkdir wiki-data
@@ -27,7 +27,7 @@ You will need to tweak these values in the config file:
 
      <wiki repository = "/home/you/wiki-data" ...>
 
-* *koala.wiki.user-repository* -- Make this point to the root directory
+* **koala.wiki.user-repository** -- Make this point to the root directory
   of the user data repository.  This is separate from the page and group
   data so that it can easily be backed-up separately (e.g., by pushing
   to a different remote).  Example::
@@ -39,16 +39,16 @@ You will need to tweak these values in the config file:
 
      <wiki user-repository = "/home/you/wiki-user-data" ...>
 
-* *koala.wiki.git-executable* -- If the "git" executable is not on the
+* **koala.wiki.git-executable** -- If the "git" executable is not on the
   path of the user running the wiki, then you need to specify it in
   the <wiki> element::
 
      <wiki git-executable = "/usr/bin/git" ... />
 
-* *koala.wiki.static-directory* -- Make it point at the "www" subdirectory
+* **koala.wiki.static-directory** -- Make it point at the "www" subdirectory
   (I guess this should be made relative to <server-root>.)
 
-* *koala.wiki.administrator.password* -- Choose a password you like.
+* **koala.wiki.administrator.password** -- Choose a password you like.
 
 
 Startup

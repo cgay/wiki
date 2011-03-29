@@ -113,17 +113,18 @@ define method rename-group
       group.group-name := new-name;
       *groups*[new-name] := group;
     end;
-    store(*storage*, group, comment);
+    store(*storage*, group, authenticated-user(), comment);
   end if;
 end method rename-group;
 
 define method create-group
     (name :: <string>, #key comment :: <string> = "")
  => (group :: <wiki-group>)
+  let author = authenticated-user();
   let group = make(<wiki-group>,
                    name: name,
-                   owner: authenticated-user());
-  store(*storage*, group, comment);
+                   owner: author);
+  store(*storage*, group, author, comment);
   group
 end method create-group;
 
@@ -133,7 +134,7 @@ define method add-member
  => ()
   add-new!(group.group-members, user);
   let comment = concatenate("added ", user.user-name, ". ", comment);
-  store(*storage*, group, comment);
+  store(*storage*, group, authenticated-user(), comment);
 end;
 
 define method remove-member
@@ -142,7 +143,7 @@ define method remove-member
  => ()
   remove!(group.group-members, user);
   let comment = concatenate("removed ", user.user-name, ". ", comment);
-  store(*storage*, group, comment);
+  store(*storage*, group, authenticated-user(), comment);
 end;
 
 define method remove-group
@@ -158,7 +159,7 @@ define method remove-group
     remove-rules-for-target(page.access-controls, group);
   end;
 */
-  store(*storage*, group, comment);
+  store(*storage*, group, authenticated-user(), comment);
 end;
 
 
@@ -276,7 +277,7 @@ define method respond-to-post
             | new-owner ~= group.group-owner)
         group.group-description := description;
         group.group-owner := new-owner;
-        store(*storage*, group, comment);
+        store(*storage*, group, authenticated-user(), comment);
       end;
       redirect-to(group);
     end if;

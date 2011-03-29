@@ -43,16 +43,19 @@ define test test-save/load-user ()
                   load(storage, <wiki-user>, username));
 
   let old-user = make(<wiki-user>,
-                      name: "luser",
+                      name: "wuser",
+                      real-name: "Wiki User",
                       password: "password",
                       email: "luser@opendylan.org",
                       administrator?: #f,
                       activation-key: "abc",
                       activated?: #t);
+  let author = old-user;
   check-no-condition("store user works",
-                     store(storage, old-user, username));
+                     store(storage, old-user, author, username));
   let new-user = load(storage, <wiki-user>, username);
   check-equal("name",     old-user.user-name,           new-user.user-name);
+  check-equal("real-name", old-user.user-real-name,     new-user.user-real-name);
   check-equal("passward", old-user.user-password,       new-user.user-password);
   check-equal("email",    old-user.user-email,          new-user.user-email);
   check-equal("admin?",   old-user.administrator?,      new-user.administrator?);

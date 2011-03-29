@@ -111,7 +111,8 @@ define generic load-all
 
 
 define generic store
-    (storage :: <storage>, obj :: <wiki-object>, comment :: <string>)
+    (storage :: <storage>, obj :: <wiki-object>, author :: <wiki-user>,
+     comment :: <string>)
  => (revision :: <string>);
 
 define generic delete

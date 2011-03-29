@@ -106,7 +106,7 @@ define method process-administrator-configuration
     log-info("Administrator user (%s) created.", $administrator-user-name);
   end;
   if (admin-changed?)
-    store(*storage*, admin, "Change due to config file edit");
+    store(*storage*, admin, *admin-user*, "Change due to config file edit");
   end;
   *admin-user* := admin;
 end method process-administrator-configuration;
@@ -185,7 +185,7 @@ define function restore-from-text-files
                           email: email,
                           administrator?: #f,
                           activated?: #t);
-          store(*storage*, user, "New user");
+          store(*storage*, user, *admin-user*, "New user");
           inc!(user-count);
         end;
         assert(empty?(read-line(stream)));
@@ -222,7 +222,7 @@ define function restore-from-text-files
                      content: content,
                      owner: author);
       end;
-      store(*storage*, page, comment);
+      store(*storage*, page, author, comment);
     end;
   end for;
   page-data.size

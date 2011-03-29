@@ -108,7 +108,7 @@ define method save-page
                  comment: comment,
                  owner: authenticated-user());
   end;
-  page.page-revision := store(*storage*, page, comment);
+  page.page-revision := store(*storage*, page, page.page-author, comment);
 /*
   block ()
     generate-connections-graph(page);

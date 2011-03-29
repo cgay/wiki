@@ -34,7 +34,8 @@ define constant sformat = format-to-string;
 
 define constant $newline-regex :: <regex> = compile-regex("[\r\n]+");
 define constant $whitespace-regex :: <regex> = compile-regex("[\r\n\t]");
-
+define constant $git-author-regex :: <regex>
+  = compile-regex("Author: .* <([^@])@.*>");
 
 define variable *pages-directory* :: false-or(<directory-locator>) = #f;
 define variable *users-directory* :: false-or(<directory-locator>) = #f;
@@ -88,12 +89,14 @@ define method initialize-storage
   let created? = (create-directories(*pages-directory*)
                   | create-directories(*groups-directory*));
   if (created?)
-    git-commit(storage, storage.git-repository-root, "Created initial directories");
+    git-commit(storage, storage.git-repository-root, *admin-user*,
+               "Created initial directories");
   end;
 
   let created? = create-directories(*users-directory*);
   if (created?)
-    git-commit(storage, storage.git-user-repository-root, "Created initial directories");
+    git-commit(storage, storage.git-user-repository-root, *admin-user*,
+               "Created initial directories");
   end;
 end method initialize-storage;
 
@@ -107,10 +110,10 @@ define method load
     (storage :: <git-storage>, class == <wiki-page>, title :: <string>,
      #key revision = #"newest")
  => (page :: <wiki-page>)
+  let content-file = file-locator(page-dir, $content);
   let (actual-revision, author, creation-date, comment)
     = git-log-one(storage, content-file, revision);
   let page-dir = git-page-storage-directory(storage, title);
-  let content-file = file-locator(page-dir, $content);
   let tags = git-load-blob(storage, file-locator(page-dir, $tags), actual-revision);
   let acls = git-load-blob(storage, file-locator(page-dir, $acls), actual-revision);
   let content = git-load-blob(storage, content-file, actual-revision);
@@ -128,7 +131,8 @@ define method load
 end method load;
 
 define method store
-    (storage :: <storage>, page :: <wiki-page>, comment :: <string>)
+    (storage :: <storage>, page :: <wiki-page>, author :: <wiki-user>,
+     comment :: <string>)
  => (revision :: <string>)
   let page-dir = git-page-storage-directory(storage, page.page-title);
   create-directories(page-dir);
@@ -137,7 +141,7 @@ define method store
   git-store-blob(file-locator(page-dir, $tags), tags-to-string(page.page-tags));
   git-store-blob(file-locator(page-dir, $acls), acls-to-string(page.access-controls));
 
-  git-commit(storage, page-dir, comment)
+  git-commit(storage, page-dir, author, comment)
 end method store;
 
 define method delete
@@ -202,11 +206,12 @@ end method load-all;
 
 define function git-parse-user
     (creation-date :: <string>, line :: <string>) => (user :: <wiki-user>)
-  let (name, admin?, password, email, activation-key, activated?)
+  let (name, real-name, admin?, password, email, activation-key, activated?)
     = apply(values, split(line, ':'));
   make(<wiki-user>,
        creation-date: git-parse-date(creation-date),
        name: name,
+       real-name: iff(empty?(real-name), #f, real-name),
        password: password,  // in base-64 (for now)
        email: email,    // in base-64
        administrator?: git-parse-boolean(admin?),
@@ -215,20 +220,22 @@ define function git-parse-user
 end function git-parse-user;
 
 define method store
-    (storage :: <storage>, user :: <wiki-user>, comment :: <string>)
+    (storage :: <storage>, user :: <wiki-user>, author :: <wiki-user>,
+     comment :: <string>)
  => (revision :: <string>)
   let file = git-user-storage-file(storage, user.user-name);
   create-directories(file);
   git-store-blob(file,
-                 sformat("%s\n%s:%s:%s:%s:%s:%s\n",
+                 sformat("%s\n%s:%s:%s:%s:%s:%s:%s\n",
                          git-encode-date(user.creation-date),
                          user.user-name,
+                         user.%user-real-name | "",
                          git-encode-boolean(user.administrator?),
                          user.user-password,  // in base-64 (for now)
                          user.user-email,     // already in base-64
                          user.user-activation-key,
                          git-encode-boolean(user.user-activated?)));
-  git-commit(storage, file, comment)
+  git-commit(storage, file, author, comment)
 end method store;
 
 define function git-user-storage-file
@@ -286,7 +293,8 @@ define function git-parse-group
 end function git-parse-group;
 
 define method store
-    (storage :: <storage>, group :: <wiki-group>, comment :: <string>)
+    (storage :: <storage>, group :: <wiki-group>, author :: <wiki-user>,
+     comment :: <string>)
  => (revision :: <string>)
   let group-file = git-group-storage-file(storage, group.group-name);
   create-directories(group-file);
@@ -298,7 +306,7 @@ define method store
                          join(map(user-name, group.group-members), ":"),
                          integer-to-string(group.group-description.size),
                          group.group-description));
-  git-commit(storage, group-file, comment)
+  git-commit(storage, group-file, author, comment)
 end method store;
 
 define method delete
@@ -504,10 +512,19 @@ define function do-object-files
 end function do-object-files;
 
 define function git-commit
-    (storage :: <git-storage>, locator :: <locator>, comment :: <string>)
+    (storage :: <git-storage>, locator :: <locator>, author :: <wiki-user>,
+     comment :: <string>)
  => (revision :: <string>)
+  // TODO: Don't want to put the real user email address in the author field,
+  //       so probably need to use a (configurable?) fake address of some sort.
+  //       Do I need to maintain the git authorsfile also?
   let (stdout, stderr, exit-code)
-    = call-git(storage, sformat("commit -m '%s' %s", comment, as(<string>, locator)));
+    = call-git(storage,
+               sformat("commit --author \"%s <%s@opendylan.org>\" -m \"%s\" %s",
+                       author.user-real-name,
+                       author.user-name,
+                       comment,
+                       as(<string>, locator)));
   // The stdout from git commit looks like this:
   //     [git-backend 804b716] ...commit comment...
   //     1 files changed, 64 insertions(+), 24 deletions(-)
@@ -526,8 +543,44 @@ define function git-commit
   end;
 end function git-commit;
 
+define class <commit> (<object>)
+  constant slot commit-hash    :: <string>, required-init-keyword: hash:;
+  constant slot commit-author  :: <string>, required-init-keyword: author:;
+  constant slot commit-date    :: <date>,   required-init-keyword: date:;
+  constant slot commit-comment :: <string>, required-init-keyword: comment:;
+end;
 
-//// Pathnames
+define function git-log-one
+    (storage :: <git-storage>, file :: <file-locator>, revision :: <string>)
+ => (commit :: <commit>)
+  let (stdout, stderr, exit-code)
+    = call-git(storage,
+               sformat("log -1 --log-size --date=iso -- %s",
+                       as(<string>, file)));
+
+  let lines = split(stdout, "\n");
+  let commit-line = lines[0];
+  let log-size-line = lines[1]; // Note: includes author and date line lengths
+  let author-line = lines[2];
+  let date-line = lines[3];
+  let comment = trim(join(slice(lines, 4, #f), "\n"));
+
+  let hash = nth-word(commit-line, 1);
+  let log-size = string-to-integer(nth-word(log-size-line, 3));
+  let date = parse-iso8601-string(slice(date-line, "Date: ".size, #f));
+
+  let match = regex-search($git-author-regex, author-line);
+  let author = match-group(match, 1);
+
+  make(<commit>,
+       hash: hash,
+       author: author,
+       date: date,
+       comment: comment)
+end function git-log-one;
+
+
+//// Locators
 
 define method file-locator
     (directory :: <directory-locator>, name :: <string>)

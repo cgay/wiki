@@ -9,7 +9,19 @@ Synopsis: User account management.
 define thread variable *user-username* = #f;
 
 
+// TODO: options to specify which fields are visible to whom.  (acls)
+//
 define class <wiki-user> (<wiki-object>, <user>)
+  slot %user-real-name :: false-or(<string>) = #f,
+    init-keyword: real-name:;
+end;
+
+define generic user-real-name
+    (user :: <wiki-user>) => (real-name :: <string>);
+
+define method user-real-name
+    (user :: <wiki-user>) => (real-name :: <string>)
+  user.%user-real-name | user.user-name
 end;
 
 // This is set when the config file is loaded.
@@ -150,7 +162,7 @@ define method remove-user
   end;
   let comment = "Automatic change due to user account removal.";
   for (group in modified-groups)
-    store(*storage*, group, comment);
+    store(*storage*, group, authenticated-user(), comment);
   end;
   delete(*storage*, user, comment);
 end method remove-user;
@@ -276,7 +288,7 @@ define method respond-to-post
     if (page-has-errors?())
       next-method();
     else
-      store(*storage*, user, "New user created");
+      store(*storage*, user, active-user, "New user created");
       add-page-note("User %s created.  Please follow the link in the confirmation "
                     "email sent to %s to activate the account.",
                     new-name, email);
@@ -299,7 +311,7 @@ define function respond-to-user-activation-request
       let key = percent-decode(key);
       if (key = user.user-activation-key)
         user.user-activated? := #t;
-        store(*storage*, user, "Account activated");
+        store(*storage*, user, *admin-user*, "Account activated");
       end;
     end;
     if (user.user-activated?)
@@ -380,7 +392,7 @@ define method respond-to-post
           add!(comments, format-to-string("%s admin status",
                                           iff(admin?, "added", "removed")));
         end;
-        store(*storage*, user, join(comments, ", "));
+        store(*storage*, user, active-user, join(comments, ", "));
         add-page-note("User %s updated.", new-name);
       else
         // new user
@@ -389,7 +401,7 @@ define method respond-to-post
                      password: password,
                      email: email,
                      administrator?: admin?);
-        store(*storage*, user, "User created");
+        store(*storage*, user, active-user, "User created");
         add-page-note("User %s created.", new-name);
         login(realm: *wiki-realm*);
       end;

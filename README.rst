@@ -164,7 +164,7 @@ acls
 
 <a-user-1>
     iso8601-creation-date
-    name1:admin?:password:email:activation-key:active?
+    username1:Real Name:admin?:password:email:activation-key:active?
 
     Passwords are stored in base-64 for now, to be slightly better
     than clear text.  This must be improved.  Email is also in

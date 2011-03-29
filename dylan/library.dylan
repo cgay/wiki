@@ -90,6 +90,7 @@ define module %wiki
     export: {
       <wiki-user>,
       user-name,
+      user-real-name,
       user-password,
       user-email,
       administrator?,

@@ -90,7 +90,6 @@ define module %wiki
     export: {
       <wiki-user>,
       user-name,
-      user-real-name,
       user-password,
       user-email,
       administrator?,
@@ -145,7 +144,8 @@ define module %wiki
 
   // Users (the other bindings are exported from the users module, above)
   export
-    <wiki-user>;
+    <wiki-user>,
+    user-real-name;
 
 end module %wiki;
 

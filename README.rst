@@ -146,9 +146,9 @@ acls
 
     Rules are defined by the following pseudo BNF::
 
-        <rule>   ::= <access>@<name>
-	<access> ::= allow | deny
-	<name>   ::= <user> | <group> | $any | $trust | $owner
+        <rule>   ::= <access><name>
+	<access> ::= - | +              // '-' = deny, '+' = allow
+	<name>   ::= <user> | <group> | $any | $trusted | $owner
 	<user>   ::= any user name
 	<group>  ::= any group name
 

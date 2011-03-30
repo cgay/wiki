@@ -110,22 +110,22 @@ define method load
     (storage :: <git-storage>, class == <wiki-page>, title :: <string>,
      #key revision = #"newest")
  => (page :: <wiki-page>)
-  let content-file = file-locator(page-dir, $content);
-  let (actual-revision, author, creation-date, comment)
-    = git-log-one(storage, content-file, revision);
   let page-dir = git-page-storage-directory(storage, title);
-  let tags = git-load-blob(storage, file-locator(page-dir, $tags), actual-revision);
-  let acls = git-load-blob(storage, file-locator(page-dir, $acls), actual-revision);
-  let content = git-load-blob(storage, content-file, actual-revision);
+  let content-file = file-locator(page-dir, $content);
+  let commit :: <commit> = git-log-one(storage, content-file, revision);
+  let hash = commit.commit-hash;
+  let tags = git-load-blob(storage, file-locator(page-dir, $tags), hash);
+  let acls = git-load-blob(storage, file-locator(page-dir, $acls), hash);
+  let content = git-load-blob(storage, content-file, hash);
   let (owner, acls) = git-parse-acls(acls, title);
   make(<wiki-page>,
        creation-date: creation-date,
        title: title,
        content: content,
-       comment: comment,
+       comment: commit.commit-comment,
        owner: owner,
-       author: author,
-       revision: actual-revision,
+       author: find-user(commit.commit-author) | *admin-user*,
+       revision: hash,
        tags: git-parse-tags(tags),
        access-controls: acls)
 end method load;
@@ -139,7 +139,7 @@ define method store
 
   git-store-blob(file-locator(page-dir, $content), page.page-content);
   git-store-blob(file-locator(page-dir, $tags), tags-to-string(page.page-tags));
-  git-store-blob(file-locator(page-dir, $acls), acls-to-string(page.access-controls));
+  git-store-blob(file-locator(page-dir, $acls), acls-to-string(page));
 
   git-commit(storage, page-dir, author, comment)
 end method store;
@@ -410,52 +410,42 @@ define function git-parse-acls
     (blob :: <string>, title :: <string>)
  => (owner :: <wiki-user>, acls :: <acls>)
   local method parse-rule(rule)
-          let (access, name) = apply(values, split(rule, '@'));
-          let access = select (access by \=)
-                         "allow" => allow:;
-                         "deny" => deny:;
+          let action = select (rule[0])
+                         '+' => $allow;
+                         '-' => $deny;
                          otherwise =>
                            git-error("Invalid access spec, %=, in ACLs for page %s",
-                                     access, title);
+                                     rule[0], title);
                        end;
-          let name = select(name by \=)
-                       "anyone" => $anyone;
-                       "trusted" => $trusted;
-                       "owner" => $owner;
-                       otherwise =>
-                         git-error("Invalid name spec, %=, in ACLs for page %s",
-                                   name, title);
-                     end;
-          list(access, name)
+          let name = slice(rule, 1, #f);
+          let target = select(name by \=)
+                         "anyone" => $anyone;
+                         "trusted" => $trusted;
+                         "owner" => $owner;
+                         otherwise =>
+                           find-user(name)
+                           | find-group(name)
+                           | git-error("Invalid name spec, %=, in ACLs for page %s",
+                                       name, title);
+                       end;
+          list(action, target)
+        end;
+  local method rules (line)
+          let rules = map(parse-rule, slice(split(line, ','), 1, #f));
+          ~empty?(rules) & rules
         end;
   let lines = split(blob, $newline-regex);
-  let view-content = #f;
-  let modify-content = #f;
-  let modify-acls = #f;
-  let owner = #f;
-  for (line in lines)
-    let parts = split(line, ',');
-    if (parts.size > 1)
-      let key = trim(parts[0]);
-      select (key by \=)
-        "owner:" =>
-          owner := find-user(trim(parts[1]));
-        "modify-content:" =>
-          modify-content := map(parse-rule, slice(parts, 1, #f));
-        "modify-acls:" =>
-          modify-acls := map(parse-rule, slice(parts, 1, #f));
-        "view-content:" =>
-          view-content := map(parse-rule, slice(parts, 1, #f));
-        otherwise =>
-          #f;
-      end select;
-    end if;
-  end for;
+  let owner = find-user(slice(lines[0], "owner: ".size, #f))
+              | *admin-user*;
+  let view-content   = rules(lines[1]) | $default-access-controls.view-content-rules;
+  let modify-content = rules(lines[2]) | $default-access-controls.modify-content-rules;
+  let modify-acls    = rules(lines[3]) | $default-access-controls.modify-acls-rules;
+
   values(owner,
          make(<acls>,
-              view-content: view-content | $default-access-controls.view-content-rules,
-              modify-content: modify-content | $default-access-controls.modify-content-rules,
-              modify-acls: modify-acls | $default-access-controls.modify-acls-rules))
+              view-content: view-content,
+              modify-content: modify-content,
+              modify-acls: modify-acls))
 end function git-parse-acls;
 
 define function git-parse-tags
@@ -565,19 +555,49 @@ define function git-log-one
   let date-line = lines[3];
   let comment = trim(join(slice(lines, 4, #f), "\n"));
 
+  local method nth-word (line :: <string>, n :: <integer>) => (word :: <string>)
+          split(line, ' ')[n]
+        end;
+
   let hash = nth-word(commit-line, 1);
   let log-size = string-to-integer(nth-word(log-size-line, 3));
-  let date = parse-iso8601-string(slice(date-line, "Date: ".size, #f));
+  let date = make(<date>, iso8601-string: slice(date-line, "Date: ".size, #f));
 
   let match = regex-search($git-author-regex, author-line);
   let author = match-group(match, 1);
 
-  make(<commit>,
-       hash: hash,
-       author: author,
-       date: date,
-       comment: comment)
+  make(<commit>, hash: hash, author: author, date: date, comment: comment)
 end function git-log-one;
+
+define function tags-to-string
+    (tags :: <sequence>) => (string :: <string>)
+  join(tags, "\n")
+end;
+
+// This function must match string-to-acls
+define function acls-to-string
+    (page :: <wiki-page>) => (string :: <string>)
+  local method rule-to-string (rule :: <rule>) => (string :: <string>)
+          let target = rule.rule-target;
+          concatenate(select (rule.rule-target)
+                        $allow => "+";
+                        $deny => "-";
+                      end,
+                      case
+                        target = $anyone => "$any";
+                        target = $trusted => "$trusted";
+                        target = $owner => "$owner";
+                        instance?(target, <wiki-user>) => target.user-name;
+                        instance?(target, <wiki-group>) => target.group-name;
+                      end)
+        end;
+  let acls :: <acls> = page.access-controls;
+  sformat("owner: %s\nview-content: %s\nmodify-content: %s\nmodify-acls: %s",
+          page.page-owner.user-name,
+          join(acls.view-content-rules, ",", key: rule-to-string),
+          join(acls.modify-content-rules, ",", key: rule-to-string),
+          join(acls.modify-acls-rules, ",", key: rule-to-string))
+end function acls-to-string;
 
 
 //// Locators

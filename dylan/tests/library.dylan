@@ -14,7 +14,10 @@ define module wiki-test-suite
   use common-dylan;
   use file-system;
   use locators,
-    import: { <directory-locator>, <file-locator>, locator-name };
+    import: {
+      <directory-locator>, <file-locator>,
+      locator-name, subdirectory-locator,
+      };
   use operating-system,
     import: { application-name };
   use testworks;

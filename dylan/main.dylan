@@ -106,7 +106,7 @@ define method process-administrator-configuration
     log-info("Administrator user (%s) created.", $administrator-user-name);
   end;
   if (admin-changed?)
-    store(*storage*, admin, *admin-user*, "Change due to config file edit");
+    store(*storage*, admin, admin, "Change due to config file edit");
   end;
   *admin-user* := admin;
 end method process-administrator-configuration;

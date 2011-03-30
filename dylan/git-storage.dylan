@@ -72,28 +72,32 @@ end;
 
 //// Initialization
 
-/// Make sure the git repository directory exists and has been
-/// initialized as a git repo.
+/// Make sure the git repository directories exist and have been
+/// initialized as git repositories.
 ///
 define method initialize-storage
     (storage :: <git-storage>) => ()
+  ensure-directories-exist(storage.git-repository-root);
+  ensure-directories-exist(storage.git-user-repository-root);
+
   // It is supposed to be safe to call "git init" on an already
   // initialized repository, so we don't check whether it has already
   // been done first.
   call-git(storage, "init");
+  call-git(storage, "init", working-directory: storage.git-user-repository-root);
 
   *pages-directory* := subdirectory-locator(storage.git-repository-root, "pages");
   *users-directory* := subdirectory-locator(storage.git-user-repository-root, "users");
   *groups-directory* := subdirectory-locator(storage.git-repository-root, "groups");
 
-  let created? = (create-directories(*pages-directory*)
-                  | create-directories(*groups-directory*));
+  let created? = (ensure-directories-exist(*pages-directory*)
+                  | ensure-directories-exist(*groups-directory*));
   if (created?)
     git-commit(storage, storage.git-repository-root, *admin-user*,
                "Created initial directories");
   end;
 
-  let created? = create-directories(*users-directory*);
+  let created? = ensure-directories-exist(*users-directory*);
   if (created?)
     git-commit(storage, storage.git-user-repository-root, *admin-user*,
                "Created initial directories");
@@ -135,7 +139,7 @@ define method store
      comment :: <string>)
  => (revision :: <string>)
   let page-dir = git-page-storage-directory(storage, page.page-title);
-  create-directories(page-dir);
+  ensure-directories-exist(page-dir);
 
   git-store-blob(file-locator(page-dir, $content), page.page-content);
   git-store-blob(file-locator(page-dir, $tags), tags-to-string(page.page-tags));
@@ -224,7 +228,7 @@ define method store
      comment :: <string>)
  => (revision :: <string>)
   let file = git-user-storage-file(storage, user.user-name);
-  create-directories(file);
+  ensure-directories-exist(file);
   git-store-blob(file,
                  sformat("%s\n%s:%s:%s:%s:%s:%s:%s\n",
                          git-encode-date(user.creation-date),
@@ -297,7 +301,7 @@ define method store
      comment :: <string>)
  => (revision :: <string>)
   let group-file = git-group-storage-file(storage, group.group-name);
-  create-directories(group-file);
+  ensure-directories-exist(group-file);
   git-store-blob(group-file,
                  sformat("%s\n%s:%s:%s\n%d\n%s\n",
                          git-encode-date(group.creation-date),
@@ -343,7 +347,7 @@ define function call-git
      stderr :: <string>,
      exit-code :: <integer>)
   let command
-    = concatenate(storage.git-executable,
+    = concatenate(as(<string>, storage.git-executable),
                   " ",
                   iff(format-args,
                       apply(sformat, command-fmt, format-args),
@@ -352,7 +356,7 @@ define function call-git
   let (exit-code, signal, child, stdout-stream, stderr-stream)
     = run-application(command,
                       asynchronous?: #f,
-                      working-directory: storage.git-repository-root,
+                      working-directory: working-directory | storage.git-repository-root,
                       output: #"stream",
                       error: #"stream");
   // TODO:
@@ -599,35 +603,10 @@ define function acls-to-string
           join(acls.modify-acls-rules, ",", key: rule-to-string))
 end function acls-to-string;
 
-
-//// Locators
-
 define method file-locator
     (directory :: <directory-locator>, name :: <string>)
  => (file :: <file-locator>)
   merge-locators(as(<file-locator>, name), directory)
 end;
 
-define method create-directories
-    (loc :: <file-locator>) => (any-created? :: <boolean>)
-  create-directories(locator-directory(loc))
-end;
-
-// because locator-directory may return #f
-define method create-directories
-    (loc == #f) => (any-created? :: <boolean>)
-  #f
-end;
-
-define method create-directories
-    (loc :: <directory-locator>) => (any-created? :: <boolean>)
-  iterate loop (dir = loc)
-    if (~file-exists?(dir))
-      // recursion bottoms out at the root directory, which exists
-      create-directories(locator-directory(dir));
-      create-directory(locator-directory(dir), locator-name(dir));
-      #t
-    end
-  end
-end method create-directories;
 

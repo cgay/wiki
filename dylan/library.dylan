@@ -145,7 +145,8 @@ define module %wiki
   // Users (the other bindings are exported from the users module, above)
   export
     <wiki-user>,
-    user-real-name;
+    user-real-name,
+    *admin-user*;
 
 end module %wiki;
 

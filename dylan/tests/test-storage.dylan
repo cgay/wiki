@@ -5,15 +5,20 @@ Synopsis: Tests of the storage protocol
 // TODO: make paths configurable
 define function make-storage
     () => (storage :: <storage>)
-  let pathname = "c:/tmp/test-wiki-storage";
-  if (file-exists?(pathname))
-    delete-directory(pathname);
+  let base = as(<directory-locator>, "c:/tmp/storage-test-suite");
+  let main = subdirectory-locator(base, "main-storage");
+  let user = subdirectory-locator(base, "user-storage");
+  if (file-exists?(base))
+    delete-directory(base);
   end;
-  make(<git-storage>,
-       repository-root: pathname,
-       executable: "c:\\Program Files\\Git\\bin\\git.exe",
-       branch: "master")
-end;
+  let git-exe = as(<file-locator>, "c:\\Program Files\\Git\\bin\\git.exe");
+  let storage = make(<git-storage>,
+                     repository-root: main,
+                     user-repository-root: user,
+                     executable: git-exe);
+  init-admin-user(storage);
+  storage
+end function make-storage;
 
 define function init-storage
     () => (storage :: <storage>)
@@ -21,7 +26,21 @@ define function init-storage
   initialize-storage(storage);
   storage
 end;
-       
+
+define function init-admin-user
+    (storage :: <storage>) => (user :: <wiki-user>)
+  let admin = make(<wiki-user>,
+                   name: "administrator",
+                   real-name: "Administrator",
+                   password: "secret",
+                   email: "cgay@opendylan.org",
+                   administrator?: #t,
+                   activated?: #t);
+  store(storage, admin, admin, "init-admin-user");
+  *admin-user* := admin;
+  admin
+end function init-admin-user;
+
 
 define test test-initalize-storage ()
   let storage = make-storage();

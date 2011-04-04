@@ -9,14 +9,18 @@ define function make-storage
   let main = subdirectory-locator(base, "main-storage");
   let user = subdirectory-locator(base, "user-storage");
   if (file-exists?(base))
-    delete-directory(base);
+    test-output("Deleting base directory %s\n", as(<string>, base));
+    delete-directory(base, recursive?: #t);
   end;
   let git-exe = as(<file-locator>, "c:\\Program Files\\Git\\bin\\git.exe");
   let storage = make(<git-storage>,
                      repository-root: main,
                      user-repository-root: user,
                      executable: git-exe);
+  // There are some chicken & egg problems with *admin-user* and initialize-storage...
   init-admin-user(storage);
+  initialize-storage(storage);
+  store(storage, *admin-user*, *admin-user*, "init-admin-user");
   storage
 end function make-storage;
 
@@ -29,16 +33,13 @@ end;
 
 define function init-admin-user
     (storage :: <storage>) => (user :: <wiki-user>)
-  let admin = make(<wiki-user>,
-                   name: "administrator",
-                   real-name: "Administrator",
-                   password: "secret",
-                   email: "cgay@opendylan.org",
-                   administrator?: #t,
-                   activated?: #t);
-  store(storage, admin, admin, "init-admin-user");
-  *admin-user* := admin;
-  admin
+  *admin-user* := make(<wiki-user>,
+                       name: "administrator",
+                       real-name: "Administrator",
+                       password: "secret",
+                       email: "cgay@opendylan.org",
+                       administrator?: #t,
+                       activated?: #t)
 end function init-admin-user;
 
 

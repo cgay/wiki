@@ -14,6 +14,7 @@ Author: Carl Gay
 //       be locked while the user is busily editing them in some web page.
 //       This could get arbitrarily complicated and needs some research first.
 //       I will proceed for now without locking at all.  Weee!
+//       Also (or instead) need to lock around prefix creation/add/commit.
 
 // TODO: error handling.  Think "disk error".
 
@@ -90,18 +91,19 @@ define method initialize-storage
   *users-directory* := subdirectory-locator(storage.git-user-repository-root, "users");
   *groups-directory* := subdirectory-locator(storage.git-repository-root, "groups");
 
-  let created? = (ensure-directories-exist(*pages-directory*)
-                  | ensure-directories-exist(*groups-directory*));
-  if (created?)
-    git-commit(storage, storage.git-repository-root, *admin-user*,
-               "Created initial directories");
-  end;
+  ensure-directories-exist(*pages-directory*);
+  ensure-directories-exist(*groups-directory*);
+  ensure-directories-exist(*users-directory*);
 
-  let created? = ensure-directories-exist(*users-directory*);
-  if (created?)
-    git-commit(storage, storage.git-user-repository-root, *admin-user*,
-               "Created initial directories");
-  end;
+  // Commits are all done by Administrator, with the Author set to the
+  // user making the change.
+  let set-name = sformat("config --global user.name \"%s\"", *admin-user*.user-name);
+  let set-email = sformat("config --global user.email \"%s\"", *admin-user*.user-email);
+  call-git(storage, set-name);
+  call-git(storage, set-email);
+  call-git(storage, set-name, working-directory: storage.git-user-repository-root);
+  call-git(storage, set-email, working-directory: storage.git-user-repository-root);
+
 end method initialize-storage;
 
 
@@ -138,14 +140,47 @@ define method store
     (storage :: <storage>, page :: <wiki-page>, author :: <wiki-user>,
      comment :: <string>)
  => (revision :: <string>)
-  let page-dir = git-page-storage-directory(storage, page.page-title);
-  ensure-directories-exist(page-dir);
+  let title :: <string> = page.page-title;
+  log-info($log, "Storing page %=", title);
 
-  git-store-blob(file-locator(page-dir, $content), page.page-content);
-  git-store-blob(file-locator(page-dir, $tags), tags-to-string(page.page-tags));
-  git-store-blob(file-locator(page-dir, $acls), acls-to-string(page));
+  let prefix = title-prefix(title);
+  let etitle = encode-title(title);
+  let prefix-dir = subdirectory-locator(*pages-directory*,
+                                        $default-sandbox-name,
+                                        prefix);
+  let page-dir = subdirectory-locator(prefix-dir, etitle);
+  let page-path = sformat("pages/%s/%s/%s", $default-sandbox-name, prefix, etitle);
 
-  git-commit(storage, page-dir, author, comment)
+  let prefix-dir-created? = ensure-directories-exist(prefix-dir);
+/*
+  if (prefix-dir-created?)
+    // TODO: This could commit other files in the same prefix dir accidentally.
+    //       Needs locking.
+    git-commit(storage,
+               sformat("pages/%s/%s", $default-sandbox-name, prefix),
+               *admin-user*,
+               "Prefix dir created");
+  end;
+*/
+  let page-dir-created? = ensure-directories-exist(page-dir);
+/*
+  if (page-dir-created?)
+    // TODO: This could commit other files in the same prefix dir accidentally.
+    //       Needs locking.
+    git-commit(storage, page-path, *admin-user*, "Page dir created");
+  end;
+*/
+
+  store-blob(file-locator(page-dir, $content), page.page-content);
+  store-blob(file-locator(page-dir, $tags), tags-to-string(page.page-tags));
+  store-blob(file-locator(page-dir, $acls), acls-to-string(page));
+
+  call-git(storage,
+           sformat("add %s/%s %s/%s %s/%s",
+                   page-path, $content,
+                   page-path, $tags,
+                   page-path, $acls));
+  git-commit(storage, page-path, author, comment)
 end method store;
 
 define method delete
@@ -164,22 +199,38 @@ end;
 define function git-page-storage-directory
     (storage :: <git-storage>, title :: <string>)
  => (directory :: <directory-locator>)
-  let len :: <integer> = title.size;
-  if (len = 0)
-    git-error("Zero length page title not allowed.");
-  else
-    // Use first three (or fewer) letters to divide pages into a broader
-    // directory structure.
-    let prefix = slice(title, 0, $page-prefix-size);
-    if (len < $page-prefix-size)
-      prefix := concatenate(prefix, make(<byte-string>,
-                                         size: $page-prefix-size - len,
-                                         fill: '_'));
-    end;
-    subdirectory-locator(*pages-directory*, $default-sandbox-name, prefix, title)
-  end
-end function git-page-storage-directory;
+  subdirectory-locator(*pages-directory*,
+                       $default-sandbox-name,
+                       title-prefix(title),
+                       encode-title(title))
+end;
 
+/// Encode the title to make it safe for use as a directory name.
+///
+define function encode-title
+    (title :: <string>) => (encoded-title :: <string>)
+  // TODO: do it
+  title
+end;
+
+define function title-prefix
+    (title :: <string>) => (prefix :: <string>)
+  // This'll do for now, but will result in certain common title words
+  // (e.g., "The") causing a lot of pages to go into the same prefix
+  // directory.  It might work better to use something like the first
+  // character from the first n words of the title, with special treatment
+  // of one-word titles.  (Using a hash has the drawback of not being able
+  // to easily see which directory a page is in.)
+  let prefix = slice(title, 0, $page-prefix-size);
+  if (prefix.size < $page-prefix-size)
+    concatenate(prefix, make(<byte-string>,
+                             size: $page-prefix-size - prefix.size,
+                             fill: '_'))
+  else
+    prefix
+  end
+end function title-prefix;
+  
 
 
 //// Users
@@ -227,26 +278,48 @@ define method store
     (storage :: <storage>, user :: <wiki-user>, author :: <wiki-user>,
      comment :: <string>)
  => (revision :: <string>)
-  let file = git-user-storage-file(storage, user.user-name);
-  ensure-directories-exist(file);
-  git-store-blob(file,
-                 sformat("%s\n%s:%s:%s:%s:%s:%s:%s\n",
-                         git-encode-date(user.creation-date),
-                         user.user-name,
-                         user.%user-real-name | "",
-                         git-encode-boolean(user.administrator?),
-                         user.user-password,  // in base-64 (for now)
-                         user.user-email,     // already in base-64
-                         user.user-activation-key,
-                         git-encode-boolean(user.user-activated?)));
-  git-commit(storage, file, author, comment)
+  let name :: <string> = user.user-name;
+  log-info($log, "Storing user %=", name);
+
+
+  let file = git-user-storage-file(storage, name);
+  let prefix-path = git-user-prefix-path(name);
+  let full-path = sformat("%s/%s", prefix-path, name);
+
+  let prefix-dir-created? = ensure-directories-exist(file);
+/*
+  if (prefix-dir-created?)
+    // TODO: This could commit other files in the same prefix dir accidentally.
+    //       Needs locking.
+    git-commit(storage, prefix-path, *admin-user*, "Prefix dir created");
+  end;
+*/  
+  store-blob(file,
+             sformat("%s\n%s:%s:%s:%s:%s:%s:%s\n",
+                     git-encode-date(user.creation-date),
+                     name,
+                     user.%user-real-name | "",
+                     git-encode-boolean(user.administrator?),
+                     user.user-password,  // in base-64 (for now)
+                     user.user-email,     // already in base-64
+                     user.user-activation-key,
+                     git-encode-boolean(user.user-activated?)));
+
+  call-git(storage, sformat("add %s", full-path),
+           working-directory: storage.git-user-repository-root);
+  git-user-commit(storage, full-path, author, comment)
 end method store;
 
 define function git-user-storage-file
     (storage :: <git-storage>, name :: <string>)
- => (pathname :: <string>)
+ => (locator :: <file-locator>)
   file-locator(subdirectory-locator(*users-directory*, slice(name, 0, 1)),
                name)
+end;
+
+define inline function git-user-prefix-path
+    (username :: <string>) => (path :: <string>)
+  sformat("users/%s", slice(username, 0, 1))
 end;
 
 
@@ -300,16 +373,30 @@ define method store
     (storage :: <storage>, group :: <wiki-group>, author :: <wiki-user>,
      comment :: <string>)
  => (revision :: <string>)
-  let group-file = git-group-storage-file(storage, group.group-name);
-  ensure-directories-exist(group-file);
-  git-store-blob(group-file,
-                 sformat("%s\n%s:%s:%s\n%d\n%s\n",
-                         git-encode-date(group.creation-date),
-                         group.group-name,
-                         group.group-owner.user-name,
-                         join(map(user-name, group.group-members), ":"),
-                         integer-to-string(group.group-description.size),
-                         group.group-description));
+  let name :: <string> = group.group-name;
+  log-info($log, "Storing group %=", name);
+
+  let group-file = git-group-storage-file(storage, name);
+  let prefix-path = git-group-prefix-path(name);
+  let full-path = sformat("%s/%s", prefix-path, name);
+
+  let prefix-dir-created? = ensure-directories-exist(group-file);
+/*
+  if (prefix-dir-created?)
+    // TODO: This could commit other files in the same prefix dir accidentally.
+    //       Needs locking.
+    git-commit(storage, prefix-path, *admin-user*, "Prefix dir created");
+  end;
+*/
+  store-blob(group-file,
+             sformat("%s\n%s:%s:%s\n%d\n%s\n",
+                     git-encode-date(group.creation-date),
+                     name,
+                     group.group-owner.user-name,
+                     join(map(user-name, group.group-members), ":"),
+                     integer-to-string(group.group-description.size),
+                     group.group-description));
+  call-git(storage, sformat("add %s", full-path));
   git-commit(storage, group-file, author, comment)
 end method store;
 
@@ -328,21 +415,29 @@ end method rename;
 
 define function git-group-storage-file
     (storage :: <git-storage>, name :: <string>)
- => (pathname :: <string>)
+ => (locator :: <file-locator>)
   file-locator(subdirectory-locator(*groups-directory*, slice(name, 0, 1)),
                name)
 end;
+
+define inline function git-group-prefix-path
+    (groupname :: <string>) => (path :: <string>)
+  sformat("groups/%s", slice(groupname, 0, 1))
+end;
+
 
 
 //// Utilities
 
 /// Run the given git command with CWD set to the wiki data repository root.
 ///
+// TODO: This should accept a sequence of strings.  IIRC there was a bug
+//       which prevented that from working.
 define function call-git
     (storage :: <git-storage>, command-fmt :: <string>,
      #key error? :: <boolean> = #t,
-          format-args = #f,
-          working-directory = #f)
+          format-args,
+          working-directory)
  => (stdout :: <string>,
      stderr :: <string>,
      exit-code :: <integer>)
@@ -352,11 +447,14 @@ define function call-git
                   iff(format-args,
                       apply(sformat, command-fmt, format-args),
                       command-fmt));
-  format-out("Running command %s\n", command);
+  let cwd = working-directory | storage.git-repository-root;
+  log-debug($log, "Running command in cwd = %s: %s\n",
+            as(<string>, cwd),
+            command);
   let (exit-code, signal, child, stdout-stream, stderr-stream)
     = run-application(command,
                       asynchronous?: #f,
-                      working-directory: working-directory | storage.git-repository-root,
+                      working-directory: cwd,
                       output: #"stream",
                       error: #"stream");
   // TODO:
@@ -367,10 +465,10 @@ define function call-git
   let stderr = read-to-end(stderr-stream);
   if (error? & (exit-code ~= 0))
     git-error("Error running git command %=:\n"
-              "exit code: %=\n",
-              "stdout: %s\n",
+              "exit code: %=\n"
+              "stdout: %s\n"
               "stderr: %s\n",
-              exit-code, stdout, stderr);
+              command, exit-code, stdout, stderr);
   else
     values(stdout, stderr, exit-code)
   end
@@ -385,7 +483,8 @@ end function call-git;
 // and then use "git cat-file" or "git show" to get the content.
 
 define function git-load-blob
-    (storage :: <git-storage>, pathname :: <string>, revision)
+    (storage :: <git-storage>, pathname :: <string>, revision,
+     #key working-directory)
  => (blob :: <string>)
   let (stdout, stderr, exit-code)
     = call-git(storage,
@@ -395,17 +494,18 @@ define function git-load-blob
                          sformat("master:%s", pathname)
                        else
                          TODO
-                       end));
+                       end),
+               working-directory: working-directory);
   stdout
 end function git-load-blob;
 
-define function git-store-blob
+define function store-blob
     (file :: <file-locator>, blob :: <string>)
  => ()
   with-open-file (stream = file, direction: #"output", if-exists: #"overwrite")
-    write(blob, stream);
+    write(stream, blob);
   end;
-end function git-store-blob;
+end function store-blob;
 
 /// Parse the content of the "acls" file into an '<acls>' object.
 /// See README.rst for a description of the "acls" file format.
@@ -505,9 +605,29 @@ define function do-object-files
   do-directory(do-prefix-dir, root);
 end function do-object-files;
 
+/// Commit something to the main (non-user) git repository.  All commits are
+/// done with explicit paths so that adds aren't necessary.
+/// Arguments:
+///   path - pathname relative to the repository root.  These can always
+///       use unix pathname format.  e.g., a/b/c
 define function git-commit
-    (storage :: <git-storage>, locator :: <locator>, author :: <wiki-user>,
+    (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
      comment :: <string>)
+ => (revision :: <string>)
+  %git-commit(storage, path, author, comment, storage.git-repository-root)
+end;
+
+/// The same as git-commit, but for commits to the user repository.
+define function git-user-commit
+    (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
+     comment :: <string>)
+ => (revision :: <string>)
+  %git-commit(storage, path, author, comment, storage.git-user-repository-root)
+end;
+ 
+define function %git-commit
+    (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
+     comment :: <string>, repo-root :: <directory-locator>)
  => (revision :: <string>)
   // TODO: Don't want to put the real user email address in the author field,
   //       so probably need to use a (configurable?) fake address of some sort.
@@ -518,7 +638,8 @@ define function git-commit
                        author.user-real-name,
                        author.user-name,
                        comment,
-                       as(<string>, locator)));
+                       path),
+               working-directory: repo-root);
   // The stdout from git commit looks like this:
   //     [git-backend 804b716] ...commit comment...
   //     1 files changed, 64 insertions(+), 24 deletions(-)
@@ -528,14 +649,10 @@ define function git-commit
     git-error("Unexpected output from the 'git commit' command: %=", stdout);
   else
     let parts = split(slice(stdout, open-bracket + 1, close-bracket), $whitespace-regex);
-    if (parts.size ~= 2)
-      git-error("Unexpected output from the 'git commit' command: %=", stdout);
-    else
-      let (branch, hash) = apply(values, parts);
-      hash
-    end;
-  end;
-end function git-commit;
+    let hash = elt(parts, -1);
+    hash
+  end
+end function %git-commit;
 
 define class <commit> (<object>)
   constant slot commit-hash    :: <string>, required-init-keyword: hash:;

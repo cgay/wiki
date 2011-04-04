@@ -2,6 +2,9 @@ Module: %wiki
 
 define constant $wiki-version :: <string> = "2009.12.04"; // YYYY.mm.dd
 
+define constant $log :: <logger> = make(<logger>,
+                                        name: "wiki",
+                                        targets: list($stdout-log-target));
 
 // If you need to hold more than one of these locks, acquire them in
 // this order: $group-lock, $user-lock, $page-lock.

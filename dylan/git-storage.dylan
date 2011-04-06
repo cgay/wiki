@@ -18,6 +18,8 @@ Author: Carl Gay
 
 // TODO: error handling.  Think "disk error".
 
+define constant <revision> = type-union(<string>, singleton(#"newest"));
+
 define constant $user-prefix-size :: <integer> = 1;
 define constant $group-prefix-size :: <integer> = 1;
 define constant $page-prefix-size :: <integer> = 3;
@@ -36,7 +38,7 @@ define constant sformat = format-to-string;
 define constant $newline-regex :: <regex> = compile-regex("[\r\n]+");
 define constant $whitespace-regex :: <regex> = compile-regex("[\r\n\t]");
 define constant $git-author-regex :: <regex>
-  = compile-regex("Author: .* <([^@])@.*>");
+  = compile-regex("Author: .* <([^@]+)@.*>");
 
 define variable *pages-directory* :: false-or(<directory-locator>) = #f;
 define variable *users-directory* :: false-or(<directory-locator>) = #f;
@@ -114,15 +116,23 @@ end method initialize-storage;
 ///
 define method load
     (storage :: <git-storage>, class == <wiki-page>, title :: <string>,
-     #key revision = #"newest")
+     #key revision :: <revision> = #"newest")
  => (page :: <wiki-page>)
-  let page-dir = git-page-storage-directory(storage, title);
-  let content-file = file-locator(page-dir, $content);
-  let commit :: <commit> = git-log-one(storage, content-file, revision);
+  log-debug($log, "Loading page %=", title);
+
+  let prefix = title-prefix(title);
+  let etitle = encode-title(title);
+  let page-dir = subdirectory-locator(*pages-directory*,
+                                      $default-sandbox-name,
+                                      prefix,
+                                      etitle);
+  let page-path = sformat("pages/%s/%s/%s", $default-sandbox-name, prefix, etitle);
+  let content-path = sformat("%s/%s", page-path, $content);
+  let commit :: <commit> = git-load-commit(storage, content-path, revision);
   let hash = commit.commit-hash;
-  let tags = git-load-blob(storage, file-locator(page-dir, $tags), hash);
-  let acls = git-load-blob(storage, file-locator(page-dir, $acls), hash);
-  let content = git-load-blob(storage, content-file, hash);
+  let tags = git-load-blob(storage, sformat("%s/%s", page-path, $tags), hash);
+  let acls = git-load-blob(storage, sformat("%s/%s", page-path, $acls), hash);
+  let content = git-load-blob(storage, content-path, hash);
   let (owner, acls) = git-parse-acls(acls, title);
   make(<wiki-page>,
        creation-date: creation-date,
@@ -151,25 +161,8 @@ define method store
   let page-dir = subdirectory-locator(prefix-dir, etitle);
   let page-path = sformat("pages/%s/%s/%s", $default-sandbox-name, prefix, etitle);
 
-  let prefix-dir-created? = ensure-directories-exist(prefix-dir);
-/*
-  if (prefix-dir-created?)
-    // TODO: This could commit other files in the same prefix dir accidentally.
-    //       Needs locking.
-    git-commit(storage,
-               sformat("pages/%s/%s", $default-sandbox-name, prefix),
-               *admin-user*,
-               "Prefix dir created");
-  end;
-*/
-  let page-dir-created? = ensure-directories-exist(page-dir);
-/*
-  if (page-dir-created?)
-    // TODO: This could commit other files in the same prefix dir accidentally.
-    //       Needs locking.
-    git-commit(storage, page-path, *admin-user*, "Page dir created");
-  end;
-*/
+  ensure-directories-exist(prefix-dir);
+  ensure-directories-exist(page-dir);
 
   store-blob(file-locator(page-dir, $content), page.page-content);
   store-blob(file-locator(page-dir, $tags), tags-to-string(page.page-tags));
@@ -485,18 +478,14 @@ end function call-git;
 // and then use "git cat-file" or "git show" to get the content.
 
 define function git-load-blob
-    (storage :: <git-storage>, pathname :: <string>, revision,
+    (storage :: <git-storage>, path :: <string>, revision :: <revision>,
      #key working-directory)
  => (blob :: <string>)
   let (stdout, stderr, exit-code)
     = call-git(storage,
-               sformat("show %s",
-                       if (revision = #"newest")
-                         // TODO: also return the revision
-                         sformat("master:%s", pathname)
-                       else
-                         TODO
-                       end),
+               sformat("show %s:%s",
+                       iff(revision = #"newest", "HEAD", revision),
+                       path),
                working-directory: working-directory);
   stdout
 end function git-load-blob;
@@ -661,17 +650,15 @@ end function %git-commit;
 define class <commit> (<object>)
   constant slot commit-hash    :: <string>, required-init-keyword: hash:;
   constant slot commit-author  :: <string>, required-init-keyword: author:;
-  constant slot commit-date    :: <date>,   required-init-keyword: date:;
+  // constant slot commit-date    :: <date>,   required-init-keyword: date:;
   constant slot commit-comment :: <string>, required-init-keyword: comment:;
 end;
 
-define function git-log-one
-    (storage :: <git-storage>, file :: <file-locator>, revision :: <string>)
+define function git-load-commit
+    (storage :: <git-storage>, path :: <string>, revision :: <revision>)
  => (commit :: <commit>)
   let (stdout, stderr, exit-code)
-    = call-git(storage,
-               sformat("log -1 --log-size --date=iso -- %s",
-                       as(<string>, file)));
+    = call-git(storage, sformat("log -1 --log-size --date=iso -- %s", path));
 
   let lines = split(stdout, "\n");
   let commit-line = lines[0];
@@ -680,19 +667,16 @@ define function git-log-one
   let date-line = lines[3];
   let comment = trim(join(slice(lines, 4, #f), "\n"));
 
-  local method nth-word (line :: <string>, n :: <integer>) => (word :: <string>)
-          split(line, ' ')[n]
-        end;
-
-  let hash = nth-word(commit-line, 1);
-  let log-size = string-to-integer(nth-word(log-size-line, 3));
-  let date = make(<date>, iso8601-string: slice(date-line, "Date: ".size, #f));
+  let hash = split(commit-line, ' ')[1];
+  let log-size = string-to-integer(split(log-size-line, ' ')[2]);
+  let date = parse-iso8601-string(trim(slice(date-line, "Date:".size, #f)),
+                                  strict?: #f);
 
   let match = regex-search($git-author-regex, author-line);
   let author = match-group(match, 1);
 
-  make(<commit>, hash: hash, author: author, date: date, comment: comment)
-end function git-log-one;
+  make(<commit>, hash: hash, author: author, /*date: date,*/ comment: comment)
+end function git-load-commit;
 
 define function tags-to-string
     (tags :: <sequence>) => (string :: <string>)
@@ -704,7 +688,7 @@ define function acls-to-string
     (page :: <wiki-page>) => (string :: <string>)
   local method rule-to-string (rule :: <rule>) => (string :: <string>)
           let target = rule.rule-target;
-          concatenate(select (rule.rule-target)
+          concatenate(select (rule.rule-action)
                         $allow => "+";
                         $deny => "-";
                       end,
@@ -716,7 +700,7 @@ define function acls-to-string
                         instance?(target, <wiki-group>) => target.group-name;
                       end)
         end;
-  let acls :: <acls> = page.access-controls;
+  let acls :: <acls> = page.page-access-controls;
   sformat("owner: %s\nview-content: %s\nmodify-content: %s\nmodify-acls: %s",
           page.page-owner.user-name,
           join(acls.view-content-rules, ",", key: rule-to-string),

@@ -160,7 +160,7 @@ define method has-permission?
     #t
   else
     let acls :: <acls> = iff(page,
-                             page.access-controls,
+                             page.page-access-controls,
                              $default-access-controls);
     let rules :: <sequence> = select (requested-operation)
                                 $view-content => acls.view-content-rules;
@@ -333,10 +333,10 @@ define method respond-to-post
       if (new-owner & new-owner ~= wiki-page.page-owner)
         wiki-page.page-owner := new-owner;
       end;
-      wiki-page.access-controls := make(<acls>,
-                                        view-content: vc-rules,
-                                        modify-content: mc-rules,
-                                        modify-acls: ma-rules);
+      wiki-page.page-access-controls := make(<acls>,
+                                             view-content: vc-rules,
+                                             modify-content: mc-rules,
+                                             modify-acls: ma-rules);
       redirect-to(wiki-page);
     end;
   end;
@@ -357,7 +357,7 @@ define tag show-rules in wiki
   if (text)
     output("%s", quote-html(text));
   else
-    let acls = *page*.access-controls;
+    let acls = *page*.page-access-controls;
     output("%s", unparse-rules(select (name by \=)
                                  "view-content" => acls.view-content-rules;
                                  "modify-content" => acls.modify-content-rules;

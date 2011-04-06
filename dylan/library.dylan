@@ -123,6 +123,12 @@ define module %wiki
     $view-content, $modify-content, $modify-acls,
     $anyone, $trusted, $owner,
     $default-access-controls,
+    view-content-rules,
+    modify-content-rules,
+    modify-acls-rules,
+    <rule>,
+    rule-action,
+    rule-target,
     has-permission?;
 
   // Storage
@@ -143,7 +149,15 @@ define module %wiki
 
   // Pages
   export
-    <wiki-page>;
+    <wiki-page>,
+    page-title,
+    page-content,
+    page-comment,
+    page-owner,
+    page-author,
+    page-tags,
+    page-access-controls,
+    page-revision;
 
   // Users (the other bindings are exported from the users module, above)
   export

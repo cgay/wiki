@@ -25,16 +25,17 @@ define class <wiki-page> (<wiki-object>)
   slot page-author :: <wiki-user>,
     required-init-keyword: author:;
 
-  // e.g. a git commit hash or a revision number
-  slot page-revision :: <string>,
-    required-init-keyword: revision:;
-
   // Tags entered by the author when the page was saved.
   slot page-tags :: <sequence>,
     required-init-keyword: tags:;
 
-  slot access-controls :: <acls>,
+  slot page-access-controls :: <acls>,
     required-init-keyword: access-controls:;
+
+  // e.g. a git commit hash or a revision number
+  // Filled in by the storage back-end.
+  slot page-revision :: <string>,
+    init-keyword: revision:;
 
 end class <wiki-page>;
 

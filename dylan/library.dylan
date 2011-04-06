@@ -151,5 +151,9 @@ define module %wiki
     user-real-name,
     *admin-user*;
 
+  // Misc
+  export
+    $log;
+
 end module %wiki;
 

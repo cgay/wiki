@@ -56,11 +56,13 @@ end;
 
 define test test-save/load-user ()
   let storage = init-storage();
-  let username = "test";
 
-  check-condition("non-existant user gets error",
-                  <storage-error>,
-                  load(storage, <wiki-user>, username));
+  check-true("No users in database at startup",
+             begin
+               let users = load-all(storage, <wiki-user>);
+               users.size = 1
+               & users[0] = *admin-user*
+             end);
 
   let old-user = make(<wiki-user>,
                       name: "wuser",
@@ -72,15 +74,26 @@ define test test-save/load-user ()
                       activated?: #t);
   let author = old-user;
   check-no-condition("store user works",
-                     store(storage, old-user, author, username));
-  let new-user = load(storage, <wiki-user>, username);
-  check-equal("name",     old-user.user-name,           new-user.user-name);
-  check-equal("real-name", old-user.user-real-name,     new-user.user-real-name);
-  check-equal("passward", old-user.user-password,       new-user.user-password);
-  check-equal("email",    old-user.user-email,          new-user.user-email);
-  check-equal("admin?",   old-user.administrator?,      new-user.administrator?);
-  check-equal("actkey",   old-user.user-activation-key, new-user.user-activation-key);
-  check-equal("active?",  old-user.user-activated?,     new-user.user-activated?);
+                     store(storage, old-user, author, "comment"));
+
+  let users = load-all(storage, <wiki-user>);
+  check-equal("one user in db", 2, users.size);
+
+  // Verify that all slots are the same in old-user and new-user.
+  let new-user = find-element(users, method (u)
+                                       u.user-name = old-user.user-name
+                                     end);
+  for (fn in list(user-name,
+                  user-real-name,
+                  user-password,
+                  user-email,
+                  administrator?,
+                  user-activation-key,
+                  user-activated?))
+    check-equal(format-to-string("%s equal?", fn),
+                fn(old-user),
+                fn(new-user))
+  end;
 end test test-save/load-user;
 
 /// Verify that when a user is deleted, any groups they belong to

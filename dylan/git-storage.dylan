@@ -251,6 +251,8 @@ define method load-all
           with-open-file(stream = pathname, direction: #"input")
             let creation-date = read-line(stream, on-end-of-stream: #f);
             let line = read-line(stream, on-end-of-stream: #f);
+            log-debug($log, "creation-date = %=", creation-date);
+            log-debug($log, "line = %=", line);
             users := pair(git-parse-user(creation-date, line),
                           users);
           end;
@@ -448,7 +450,7 @@ define function call-git
                       apply(sformat, command-fmt, format-args),
                       command-fmt));
   let cwd = working-directory | storage.git-repository-root;
-  log-debug($log, "Running command in cwd = %s: %s\n",
+  log-debug($log, "Running command in cwd = %s: %s",
             as(<string>, cwd),
             command);
   let (exit-code, signal, child, stdout-stream, stderr-stream)
@@ -589,6 +591,7 @@ define function do-object-files
      fun :: <function>)
  => ()
   local method do-object-dir (directory, name, type)
+          log-debug($log, "do-object-dir(%=, %=, %=)", directory, name, type);
           // called once for each file/dir in a prefix directory
           if (class = <wiki-page> & type = #"directory")
             fun(subdirectory-locator(directory, name));
@@ -597,9 +600,10 @@ define function do-object-files
           end;
         end,
         method do-prefix-dir (directory, name, type)
+          log-debug($log, "do-prefix-dir(%=, %=, %=)", directory, name, type);
           // called once per prefix directory
           if (type = #"directory")
-            do-directory(do-object-dir, directory)
+            do-directory(do-object-dir, subdirectory-locator(directory, name))
           end;
         end;
   do-directory(do-prefix-dir, root);

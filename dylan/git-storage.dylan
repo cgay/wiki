@@ -177,16 +177,17 @@ define method store
 end method store;
 
 define method delete
-    (storage :: <storage>, page :: <wiki-page>, comment :: <string>)
+    (storage :: <storage>, page :: <wiki-page>, author :: <wiki-user>,
+     comment :: <string>)
  => ()
-  TODO;
+  TODO--delete-page;
 end;
 
 define method rename
     (storage :: <storage>, page :: <wiki-page>, new-name :: <string>,
-     comment :: <string>)
+     author :: <wiki-user>, comment :: <string>)
  => ()
-  TODO;
+  TODO--rename-page;
 end;
 
 define function git-page-storage-directory
@@ -239,6 +240,7 @@ end function title-prefix;
 define method load-all
     (storage :: <storage>, class == <wiki-user>)
  => (users :: <collection>)
+  log-info($log, "Loading all users...");
   let users = #();
   local method load-user(pathname :: <file-locator>)
           with-open-file(stream = pathname, direction: #"input")
@@ -251,6 +253,7 @@ define method load-all
           end;
         end;
   do-object-files(*users-directory*, <wiki-user>, load-user);
+  log-info($log, "Loaded %d users from storage", users.size);
   reverse!(users)
 end method load-all;
 
@@ -276,20 +279,9 @@ define method store
   let name :: <string> = user.user-name;
   log-info($log, "Storing user %=", name);
 
-
-  let file = git-user-storage-file(storage, name);
-  let prefix-path = git-user-prefix-path(name);
-  let full-path = sformat("%s/%s", prefix-path, name);
-
-  let prefix-dir-created? = ensure-directories-exist(file);
-/*
-  if (prefix-dir-created?)
-    // TODO: This could commit other files in the same prefix dir accidentally.
-    //       Needs locking.
-    git-commit(storage, prefix-path, *admin-user*, "Prefix dir created");
-  end;
-*/  
-  store-blob(file,
+  let user-file = git-user-storage-file(storage, name);
+  ensure-directories-exist(user-file);
+  store-blob(user-file,
              sformat("%s\n%s:%s:%s:%s:%s:%s:%s\n",
                      git-encode-date(user.creation-date),
                      name,
@@ -300,21 +292,41 @@ define method store
                      user.user-activation-key,
                      git-encode-boolean(user.user-activated?)));
 
-  call-git(storage, sformat("add %s", full-path),
+  let user-path = git-user-path(name);
+  call-git(storage, sformat("add %s", user-path),
            working-directory: storage.git-user-repository-root);
-  git-user-commit(storage, full-path, author, comment)
+  git-user-commit(storage, user-path, author, comment)
 end method store;
+
+define method delete
+    (storage :: <storage>, user :: <wiki-user>, author :: <wiki-user>,
+     comment :: <string>)
+ => ()
+  TODO--delete-user;
+  // Maintain a file listing pages that have this group in their ACLs.
+  // This function should update that list.
+  // Maybe there's some clever way to avoid updating all the pages'
+  // acls files by looking at revisions?
+end method delete;
+
+define method rename
+    (storage :: <storage>, user :: <wiki-user>, new-name :: <string>,
+     author :: <wiki-user>, comment :: <string>)
+ => ()
+  TODO--rename-user;
+end method rename;
 
 define function git-user-storage-file
     (storage :: <git-storage>, name :: <string>)
  => (locator :: <file-locator>)
-  file-locator(subdirectory-locator(*users-directory*, slice(name, 0, 1)),
+  file-locator(subdirectory-locator(*users-directory*,
+                                    slice(name, 0, $user-prefix-size)),
                name)
 end;
 
-define inline function git-user-prefix-path
+define inline function git-user-path
     (username :: <string>) => (path :: <string>)
-  sformat("users/%s", slice(username, 0, 1))
+  sformat("users/%s/%s", slice(username, 0, $user-prefix-size), username)
 end;
 
 
@@ -331,6 +343,7 @@ end;
 define method load-all
     (storage :: <storage>, class == <wiki-group>)
  => (groups :: <collection>)
+  log-info($log, "Loading all groups...");
   let groups = #();
   local method load-group(file :: <file-locator>)
           with-open-file(stream = file, direction: #"input")
@@ -344,6 +357,7 @@ define method load-all
           end;
         end;
   do-object-files(*groups-directory*, <wiki-group>, load-group);
+  log-info($log, "Loaded %d groups from storage", groups.size);
   reverse!(groups)
 end;
 
@@ -356,11 +370,21 @@ define function git-parse-group
   let (group-name, owner-name, #rest member-names) = apply(values, split(people, ':'));
   let desc-size = string-to-integer(trim(description-size));
   let description = slice(description, 0, desc-size);
+  local method find-user-or-admin (name)
+          let user = find-user(name);
+          if (user)
+            user
+          else
+            log-error($log, "Owner of group %= not found: %=", group-name, owner-name);
+            *admin-user*
+          end
+        end;
+  let owner = find-user-or-admin(owner-name);
   make(<wiki-group>,
        creation-date: git-parse-date(creation-date),
        name: group-name,
-       owner: find-user(owner-name),
-       members: map(find-user, member-names),
+       owner: owner,
+       members: remove-duplicates(map(find-user-or-admin, member-names)),
        description: description)
 end function git-parse-group;
 
@@ -372,52 +396,50 @@ define method store
   log-info($log, "Storing group %=", name);
 
   let group-file = git-group-storage-file(storage, name);
-  let prefix-path = git-group-prefix-path(name);
-  let full-path = sformat("%s/%s", prefix-path, name);
-
-  let prefix-dir-created? = ensure-directories-exist(group-file);
-/*
-  if (prefix-dir-created?)
-    // TODO: This could commit other files in the same prefix dir accidentally.
-    //       Needs locking.
-    git-commit(storage, prefix-path, *admin-user*, "Prefix dir created");
-  end;
-*/
+  ensure-directories-exist(group-file);
   store-blob(group-file,
              sformat("%s\n%s:%s:%s\n%d\n%s\n",
                      git-encode-date(group.creation-date),
                      name,
                      group.group-owner.user-name,
                      join(map(user-name, group.group-members), ":"),
-                     integer-to-string(group.group-description.size),
+                     group.group-description.size,
                      group.group-description));
-  call-git(storage, sformat("add %s", full-path));
-  git-commit(storage, group-file, author, comment)
+
+  let group-path = git-group-path(name);
+  call-git(storage, sformat("add %s", group-path));
+  git-commit(storage, group-path, author, comment)
 end method store;
 
 define method delete
-    (storage :: <storage>, group :: <wiki-group>, comment :: <string>)
+    (storage :: <storage>, group :: <wiki-group>, author :: <wiki-user>,
+     comment :: <string>)
  => ()
-  TODO;
+  TODO--delete-group;
+  // Maintain a file listing pages that have this group in their ACLs.
+  // This function should update that list.
+  // Maybe there's some clever way to avoid updating all the pages'
+  // acls files by looking at revisions?
 end method delete;
 
 define method rename
     (storage :: <storage>, group :: <wiki-group>, new-name :: <string>,
-     comment :: <string>)
+     author :: <wiki-user>, comment :: <string>)
  => ()
-  TODO;
+  TODO--rename-group;
 end method rename;
 
 define function git-group-storage-file
     (storage :: <git-storage>, name :: <string>)
  => (locator :: <file-locator>)
-  file-locator(subdirectory-locator(*groups-directory*, slice(name, 0, 1)),
+  file-locator(subdirectory-locator(*groups-directory*,
+                                    slice(name, 0, $group-prefix-size)),
                name)
 end;
 
-define inline function git-group-prefix-path
+define inline function git-group-path
     (groupname :: <string>) => (path :: <string>)
-  sformat("groups/%s", slice(groupname, 0, 1))
+  sformat("groups/%s/%s", slice(groupname, 0, $group-prefix-size), groupname)
 end;
 
 

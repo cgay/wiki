@@ -16,6 +16,12 @@ define class <wiki-group> (<wiki-object>)
     init-keyword: description:;
 end class <wiki-group>;
 
+define method make
+    (class == <wiki-group>, #rest args, #key members :: <sequence> = #[])
+ => (group :: <wiki-group>)
+  apply(next-method, class, members: as(<stretchy-vector>, members), args)
+end;
+
 define method initialize
     (group :: <wiki-group>, #key)
   add-new!(group.group-members, group.group-owner);
@@ -147,28 +153,19 @@ define method remove-member
 end;
 
 define method remove-group
-    (group :: <wiki-group>, #key comment :: <string> = "")
+    (group :: <wiki-group>, #key comment :: <string> = "deleted")
  => ()
   with-lock ($group-lock)
     remove-key!(*groups*, group.group-name);
   end;
-  TODO; // save a list of pages that have acls using this group
-        // in one of the group's data files.
-/*
-  for (page in storage(<wiki-page>))
-    remove-rules-for-target(page.access-controls, group);
+  with-lock ($page-lock)
+    for (page in *pages*)
+      remove-rules-for-target(page.page-access-controls, group);
+    end;
   end;
-*/
-  store(*storage*, group, authenticated-user(), comment);
-end;
+  delete(*storage*, group, authenticated-user(), comment);
+end method remove-group;
 
-
-/*
-define method permitted? (action == #"edit-page", #key)
- => (permitted? :: <boolean>);
-  (~ authenticated-user()) & error(make(<authentication-error>));
-end;
-*/
 
 //// List Groups (note not a subclass of <group-page>)
 
@@ -295,9 +292,9 @@ define method respond-to-post
   let group-name = percent-decode(name);
   let group = find-group(group-name);
   if (group)
-    let user = authenticated-user();
-    if (user & (user = group.group-owner | administrator?(user)))
-      delete(*storage*, group, get-query-value("comment") | "");
+    let author = authenticated-user();
+    if (author & (author = group.group-owner | administrator?(author)))
+      delete(*storage*, group, author, get-query-value("comment") | "");
       add-page-note("Group %s removed", group-name);
     else
       add-page-error("You do not have permission to remove this group.")

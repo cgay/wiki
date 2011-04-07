@@ -85,9 +85,6 @@ define class <rule> (<object>)
     required-init-keyword: target:;
 end;
 
-// temp, for debugging dood problem
-define constant $acls-lock :: <simple-lock> = make(<simple-lock>);
-
 define class <acls> (<object>)
   // Must hold this lock before modifying the values in any
   // of the other slots.
@@ -121,11 +118,11 @@ define method remove-rules-for-target
   local method not-for-target (rule)
           rule.rule-target ~= target
         end;
-  with-lock ($acls-lock /* acls.acls-lock */)
+  //with-lock ($acls-lock /* acls.acls-lock */)
     acls.view-content-rules := choose(not-for-target, acls.view-content-rules);
     acls.modify-content-rules := choose(not-for-target, acls.modify-content-rules);
     acls.modify-acls-rules := choose(not-for-target, acls.modify-acls-rules);
-  end;
+  //end;
 end method remove-rules-for-target;
 
 // Default access controls applied to pages that don't otherwise specify

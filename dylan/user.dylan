@@ -161,10 +161,11 @@ define method remove-user
     modified-groups := add!(modified-groups, group);
   end;
   let comment = "Automatic change due to user account removal.";
+  let author = authenticated-user();
   for (group in modified-groups)
-    store(*storage*, group, authenticated-user(), comment);
+    store(*storage*, group, author, comment);
   end;
-  delete(*storage*, user, comment);
+  delete(*storage*, user, author, comment);
 end method remove-user;
 
 
@@ -260,22 +261,43 @@ define method respond-to-post
     respond-to-get(*view-user-page*, name: active-user.user-name);
   else
     let new-name = validate-form-field("user-name", validate-user-name);
-    if (find-user(new-name))
-      add-field-error("user-name", "A user named %s already exists.", new-name);
-    end;
     let email = validate-form-field("email", validate-email);
     let password = validate-form-field("password", validate-password);
     let password2 = validate-form-field("password2", validate-password);
     if (password ~= password2)
       add-field-error("password2", "Passwords don't match.");
     end;
-    let user = #f;
-    if (~page-has-errors?())
-      user := make(<wiki-user>,
-                   name: new-name,
-                   password: password,
-                   email: email,
-                   administrator?: #f);
+
+    // Hold this user name, by adding it to *users*, while email is being sent.
+    // It will be removed if there are any further errors.
+    let user
+      = if (find-user(new-name))
+          add-field-error("user-name", "A user named %s already exists.", new-name);
+          #f
+        else
+          with-lock ($user-lock)
+            // check again with lock held
+            if (find-user(new-name))
+              add-field-error("user-name", "A user named %s already exists.", new-name);
+              #f
+            else
+              *users*[as-lowercase(new-name)] := make(<wiki-user>,
+                                                      name: new-name,
+                                                      real-name: #f,  // TODO
+                                                      password: password,
+                                                      email: email,
+                                                      administrator?: #f);
+            end;
+          end;
+        end if;
+    if (user)
+      // Hannes commented in IRC 2009-06-12: this will probably block
+      // the responder thread while the mail is being delivered; and
+      // to circumvent greylisting you've to wait 5-10 minutes between
+      // the first and second attempt. I'd suggest a separate thread
+      // which cares about email notifications, and the responder
+      // thread to push a message to a queue which is popped by the
+      // email thread...
       block ()
         send-new-account-email(user);
       exception (ex :: <serious-condition>)
@@ -285,14 +307,25 @@ define method respond-to-post
                         "Unable to send confirmation email to this address.");
       end;
     end;
+
+    // Check again for errors since sending mail may have failed.
     if (page-has-errors?())
+      with-lock($user-lock)
+        remove-key!(*users*, as-lowercase(new-name));
+      end;
       next-method();
     else
-      store(*storage*, user, active-user, "New user created");
-      add-page-note("User %s created.  Please follow the link in the confirmation "
-                    "email sent to %s to activate the account.",
-                    new-name, email);
-      respond-to-get(*view-user-page*, name: user.user-name);
+      block ()
+        store(*storage*, user, active-user, "New user created");
+        add-page-note("User %s created.  Please follow the link in the confirmation "
+                      "email sent to %s to activate the account.",
+                      new-name, email);
+        respond-to-get(*view-user-page*, name: user.user-name);
+      exception (ex :: <serious-condition>)
+        with-lock($user-lock)
+          remove-key!(*users*, as-lowercase(new-name));
+        end;
+      end;
     end if;
   end if;    
 end method respond-to-post;

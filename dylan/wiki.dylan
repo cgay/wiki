@@ -1,6 +1,6 @@
 Module: %wiki
 
-define constant $wiki-version :: <string> = "2009.12.04"; // YYYY.mm.dd
+define constant $wiki-version :: <string> = "2011.04.07"; // YYYY.mm.dd
 
 define constant $log :: <logger> = make(<logger>,
                                         name: "wiki",
@@ -10,12 +10,17 @@ define constant $log :: <logger> = make(<logger>,
 // this order: $group-lock, $user-lock, $page-lock.
 
 /// All users are loaded from storage at startup and stored in this collection.
+/// Users created after startup are added.  Keys are lowercased.
 ///
-// TODO: make case insensitive
 define variable *users* :: <string-table> = make(<string-table>);
 
 /// Hold this when modifying *users*.
 define constant $user-lock :: <lock> = make(<lock>);
+
+define function find-user
+    (name :: <string>, #key default)
+  element(*users*, as-lowercase(name), default: default)
+end;
 
 
 /// All groups are loaded from storage at startup and stored in this collection.
@@ -119,11 +124,13 @@ define generic store
  => (revision :: <string>);
 
 define generic delete
-    (storage :: <storage>, obj :: <wiki-object>, comment :: <string>)
+    (storage :: <storage>, obj :: <wiki-object>, author :: <wiki-user>,
+     comment :: <string>)
  => ();
 
 define generic rename
-    (storage :: <storage>, obj :: <wiki-object>, new-name :: <string>, comment :: <string>)
+    (storage :: <storage>, obj :: <wiki-object>, new-name :: <string>,
+     author :: <wiki-user>, comment :: <string>)
  => ();
 
 /// This is what the above methods should signal if they can't fullfill
@@ -209,13 +216,13 @@ define method wiki-changes
           tag :: false-or(<string>),
           name :: false-or(<string>))
  => (changes :: <sequence>)
-  TODO;
+  TODO--wiki-changes;
 end method wiki-changes;
 
 define body tag list-recent-changes in wiki
     (page :: <wiki-dsp>, do-body :: <function>)
     ()
-  TODO;
+  TODO--list-recent-changes;
 /*
   let pc = page-context();
   let previous-change = #f;

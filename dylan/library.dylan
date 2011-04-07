@@ -90,6 +90,7 @@ define module %wiki
   use uncommon-dylan;
   use uri;
   use users,
+    exclude: { find-user },
     export: {
       <wiki-user>,
       user-name,
@@ -145,7 +146,11 @@ define module %wiki
     
   // Groups
   export
-    <wiki-group>;
+    <wiki-group>,
+    group-name,
+    group-owner,
+    group-members,
+    group-description;
 
   // Pages
   export
@@ -163,7 +168,8 @@ define module %wiki
   export
     <wiki-user>,
     user-real-name,
-    *admin-user*;
+    *admin-user*,
+    *users*;
 
   // Misc
   export

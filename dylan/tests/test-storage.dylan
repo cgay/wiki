@@ -33,13 +33,15 @@ end;
 
 define function init-admin-user
     (storage :: <storage>) => (user :: <wiki-user>)
-  *admin-user* := make(<wiki-user>,
-                       name: "administrator",
-                       real-name: "Administrator",
-                       password: "secret",
-                       email: "cgay@opendylan.org",
-                       administrator?: #t,
-                       activated?: #t)
+  let admin = make(<wiki-user>,
+                   name: "administrator",
+                   real-name: "Administrator",
+                   password: "secret",
+                   email: "cgay@opendylan.org",
+                   administrator?: #t,
+                   activated?: #t);
+  *users*[admin.user-name] := admin;
+  *admin-user* := admin
 end function init-admin-user;
 
 
@@ -77,7 +79,7 @@ define test test-save/load-user ()
                      store(storage, old-user, author, "comment"));
 
   let users = load-all(storage, <wiki-user>);
-  check-equal("one user in db", 2, users.size);
+  check-equal("Two users in storage", 2, users.size);
 
   // Verify that all slots are the same in old-user and new-user.
   let new-user = find-element(users, method (u)
@@ -165,7 +167,24 @@ define suite group-test-suite ()
 end;
 
 define test test-save/load-group ()
-end;
+  let storage = init-storage();
+  let old-group = make(<wiki-group>,
+                       name: "group-a",
+                       owner: *admin-user*,
+                       members: list(*admin-user*),
+                       description: "group a");
+  check-no-condition("store group works",
+                     store(storage, old-group, *admin-user*, "creating group a"));
+
+  let groups = load-all(storage, <wiki-group>);
+  check-equal("One group in storage", 1, groups.size);
+
+  let new-group = groups[0];
+  check-equal("name", old-group.group-name, new-group.group-name);
+  check-equal("owner", old-group.group-owner, new-group.group-owner);
+  check-equal("description", old-group.group-description, new-group.group-description);
+  check-equal("members", old-group.group-members, new-group.group-members);
+end test test-save/load-group;
 
 define test test-remove-group ()
 end;

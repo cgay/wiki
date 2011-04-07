@@ -183,7 +183,8 @@ define method rename-page
     (page :: <wiki-page>, new-title :: <string>,
      #key comment :: <string> = "")
  => ()
-  rename(*storage*, page, new-title, comment);
+  let author = authenticated-user();
+  rename(*storage*, page, new-title, author, comment);
   page.page-title := new-title;
 end;
 
@@ -202,7 +203,7 @@ define method find-backlinks
     (title :: <string>)
  => (backlinks :: <stretchy-vector>)
   let backlinks = make(<stretchy-vector>);
-  TODO; // maintain link info in a git file for each page
+  TODO--maintain-page-backlink-info;
   backlinks
 end;
 
@@ -326,7 +327,8 @@ end method respond-to-get;
 
 define method do-remove-page (#key title)
   let page = find-page(percent-decode(title));
-  delete(*storage*, page, get-query-value("comment") | "");
+  delete(*storage*, page, authenticated-user(), get-query-value("comment") | "");
+  // TODO: huh?  Can't redirect to the deleted page.
   redirect-to(page);
 end;
 

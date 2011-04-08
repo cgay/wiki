@@ -28,9 +28,13 @@ define sideways method process-config-element
                     user-repository-root: as(<directory-locator>, user-root),
                     executable: as(<file-locator>, git-exe));
   initialize-storage-for-reads(*storage*);
+
+  // Not serving yet, so no lock needed.
   for (user in load-all(*storage*, <wiki-user>))
-    // Not serving yet, so no lock needed.
     *users*[as-lowercase(user.user-name)] := user;
+  end;
+  for (group in load-all(*storage*, <wiki-group>))
+    *groups*[as-lowercase(group.group-name)] := group;
   end;
 
   local method child-node-named (name)

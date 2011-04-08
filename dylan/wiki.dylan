@@ -21,6 +21,7 @@ end;
 
 
 /// All groups are loaded from storage at startup and stored in this collection.
+/// Users created after startup are added.  Keys are lowercased.
 ///
 define variable *groups* :: <string-table> = make(<string-table>);
 
@@ -114,6 +115,8 @@ define generic load-all
     (storage :: <storage>, class :: subclass(<wiki-object>))
  => (objects :: <sequence>);
 
+define generic load-pages-with-tags
+    (storage :: <storage>, tags :: <sequence>) => (pages :: <sequence>);
 
 define generic store
     (storage :: <storage>, obj :: <wiki-object>, author :: <wiki-user>,

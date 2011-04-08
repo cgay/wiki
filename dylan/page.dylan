@@ -71,21 +71,18 @@ end;
 //// Load pages
 
 define method find-page
-    (title :: <string>) => (page :: false-or(<wiki-page>))
-/*
+    (title :: <string>)
+ => (page :: false-or(<wiki-page>))
   element(*pages*, title, default: #f)
   | begin
-      let loaded-page = load(*storage*, <wiki-user>, title);
+      // Load page is slow, do it without the lock held.
+      let loaded-page = load(*storage*, <wiki-page>, title);
       with-lock ($page-lock)
-        let page = element(*pages*, title, default: #f);
-        if (page)
-          if (loaded-page.creation-date > page.creation-date)
-            *pages*[title] := loaded-page;
-          end
+        // check again with lock held
+        element(*pages*, title, default: #f)
+        | (*pages*[title] := loaded-page)
       end
     end
-*/
-  load(*storage*, <wiki-user>, title)
 end method find-page;
 
 
@@ -239,11 +236,7 @@ define method respond-to-get
   if (wiki-page)
     set-attribute(page-context(), "title", percent-decode(title));
     set-attribute(page-context(), "page-versions",
-                  if (wiki-page)
-                    reverse(load-all-revisions(*storage*, wiki-page))
-                  else
-                    #()
-                  end);
+                  reverse(load-revisions(*storage*, wiki-page)));
     next-method()
   else
     respond-to-get(*non-existing-page-page*, title: title);
@@ -360,12 +353,7 @@ end;
 define method show-page-responder
     (#key title :: <string>, version)
   let title = percent-decode(title);
-  let page = find-page(title);
-  let version = if (page & version)
-                  element(page.page-versions, string-to-integer(version) - 1,
-                          default: #f);
-                end if;
-  dynamic-bind (*page* = page)
+  dynamic-bind (*page* = find-page(title))
     respond-to-get(case
                      *page* => *view-page-page*;
                      authenticated-user() => *edit-page-page*;
@@ -661,20 +649,8 @@ define method find-tagged-pages
     (tags :: <sequence>,  // strings
      #key order-by :: <function> = more-recently-published?)
  => (pages :: <sequence>)
-  // TODO: Obviously this doesn't scale.
-  let pages = load-all(*storage*, <wiki-page>);
-  if (~empty?(tags))
-    pages := choose(method (page)
-                      every?(rcurry(member?, page.page-versions.last.categories,
-                                    test:, \=),
-                             tags)
-                    end,
-                    pages);
-  end;
-  if (order-by)
-    pages := sort(pages, test: order-by);
-  end;
-  pages
+  sort(load-pages-with-tags(*storage*, tags),
+       test: order-by)
 end method find-tagged-pages;
 
 // This is only used is main.dsp now, and only for news.

@@ -156,6 +156,35 @@ define method load
        access-controls: acls)
 end method load;
 
+define method load-pages-with-tags
+    (storage :: <storage>, tags :: <sequence>)
+ => (pages :: <sequence>)
+  let pages = make(<stretchy-vector>);
+  local method load-page-tags (page-directory :: <directory-locator>)
+          with-open-file(stream = file-locator(page-directory, $tags))
+            split(read-to-end(stream), '\n')
+          end
+        end;
+  local method load-page-with-tags (page-directory :: <directory-locator>)
+          let title = git-decode-title(locator-name(page-directory));
+          let page = find-page(title);
+          let page-tags = iff(page,
+                              page.page-tags,
+                              load-page-tags(page-directory));
+          block (return)
+            for (tag in tags)
+              if (member?(tag, page-tags, test: \=))
+                add!(pages, find-or-load-page(title));
+                return();
+              end;
+            end;
+          end block;
+        end;
+  do-object-files(*pages-directory*, <wiki-page>, load-page-with-tags);
+  pages
+end method load-pages-with-tags;
+
+
 define method store
     (storage :: <storage>, page :: <wiki-page>, author :: <wiki-user>,
      comment :: <string>)
@@ -164,7 +193,7 @@ define method store
   log-info("Storing page %=", title);
 
   let prefix = title-prefix(title);
-  let etitle = encode-title(title);
+  let etitle = git-encode-title(title);
   let prefix-dir = subdirectory-locator(*pages-directory*,
                                         $default-sandbox-name,
                                         prefix);
@@ -206,15 +235,21 @@ define function git-page-storage-directory
   subdirectory-locator(*pages-directory*,
                        $default-sandbox-name,
                        title-prefix(title),
-                       encode-title(title))
+                       git-encode-title(title))
 end;
 
 /// Encode the title to make it safe for use as a directory name.
 ///
-define function encode-title
+define function git-encode-title
     (title :: <string>) => (encoded-title :: <string>)
   // TODO: do it
   title
+end;
+
+define function git-decode-title
+    (encoded-title :: <string>) => (title :: <string>)
+  // TODO: do it
+  encoded-title
 end;
 
 define function title-prefix

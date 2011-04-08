@@ -661,8 +661,8 @@ define method find-tagged-pages
     (tags :: <sequence>,  // strings
      #key order-by :: <function> = more-recently-published?)
  => (pages :: <sequence>)
-  // TODO: Obviously this doesn't scale.   
-  let pages = value-sequence(load-all(*storage*, <wiki-page>));
+  // TODO: Obviously this doesn't scale.
+  let pages = load-all(*storage*, <wiki-page>);
   if (~empty?(tags))
     pages := choose(method (page)
                       every?(rcurry(member?, page.page-versions.last.categories,

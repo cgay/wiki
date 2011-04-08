@@ -15,7 +15,6 @@ define library wiki
   use http-common;
   use io;
   use koala;
-  use logging;
   use network;
   use smtp-client;
   use strings;
@@ -67,11 +66,9 @@ define module %wiki
   use format-out;
   use http-common,
     exclude: { remove-attribute };
-  use koala,
-    exclude: { log-info, log-debug, log-error, log-warning, log-trace };
+  use koala;
   use locators,
     exclude: { <http-server>, <url> };
-  use logging;
   use operating-system;
   use permission;
   use sequence-diff;
@@ -170,10 +167,6 @@ define module %wiki
     user-real-name,
     *admin-user*,
     *users*;
-
-  // Misc
-  export
-    $log;
 
 end module %wiki;
 

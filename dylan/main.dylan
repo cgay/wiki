@@ -17,14 +17,21 @@ define constant $administrator-user-name :: <string> = "administrator";
 define sideways method process-config-element
     (server :: <http-server>, node :: xml/<element>, name == #"wiki")
 
-  let content-directory = get-attr(node, #"content-directory") | "wiki-data";
-  let git-exe = get-attr(node, #"git-executable") | "git";
-  let git-branch = get-attr(node, #"git-branch") | "master";
+  let git-exe = get-attr(node, #"git-executable")
+                | "git";
+  let main-root = get-attr(node, #"git-repository-root")
+                  | error("The git-repository-root setting is required.");
+  let user-root = get-attr(node, #"git-user-repository-root")
+                  | error("The git-user-repository-root setting is required.");
   *storage* := make(<git-storage>,
-                    repository-root: content-directory,
-                    executable: git-exe,
-                    branch: git-branch);
-  initialize-storage(*storage*);
+                    repository-root: as(<directory-locator>, main-root),
+                    user-repository-root: as(<directory-locator>, user-root),
+                    executable: as(<file-locator>, git-exe));
+  initialize-storage-for-reads(*storage*);
+  for (user in load-all(*storage*, <wiki-user>))
+    // Not serving yet, so no lock needed.
+    *users*[as-lowercase(user.user-name)] := user;
+  end;
 
   local method child-node-named (name)
           block (return)
@@ -35,6 +42,18 @@ define sideways method process-config-element
             end;
           end;
         end;
+
+  let admin-element = child-node-named(#"administrator");
+  if (~admin-element)
+    error("An <administrator> element must be specified in the config file.");
+  end;
+  let (admin-user, changed?) = process-administrator-configuration(admin-element);
+  // TODO: COMMENTED OUT TEMPORARILY DUE TO H:\ BEING UNAVAILABLE
+  //initialize-storage-for-writes(*storage*, admin-user);
+  if (changed?)
+    store(*storage*, admin-user, admin-user, "Change due to config file edit");
+  end;
+  *admin-user* := admin-user;
 
   *site-name* := get-attr(node, #"site-name") | *site-name*;
   log-info("Site name: %s", *site-name*);
@@ -51,12 +70,6 @@ define sideways method process-config-element
           get-attr(node, #"static-directory") | *static-directory*);
   *template-directory* := subdirectory-locator(*static-directory*, "dsp");
   log-info("Wiki static directory: %s", *static-directory*);
-
-  let admin-element = child-node-named(#"administrator");
-  if (~admin-element)
-    error("An <administrator> element must be specified in the config file.");
-  end;
-  process-administrator-configuration(admin-element);
 
   let auth-element = child-node-named(#"authentication");
   if (auth-element)
@@ -105,10 +118,7 @@ define method process-administrator-configuration
     admin-changed? := #t;
     log-info("Administrator user (%s) created.", $administrator-user-name);
   end;
-  if (admin-changed?)
-    store(*storage*, admin, admin, "Change due to config file edit");
-  end;
-  *admin-user* := admin;
+  values(*admin-user* := admin, admin-changed?)
 end method process-administrator-configuration;
 
 define method process-authentication-configuration
@@ -414,6 +424,7 @@ define function main
   else
     let filename = locator-name(as(<file-locator>, application-name()));
     if (split(filename, ".")[0] = "wiki")
+      // This eventually causes process-config-element (above) to be called.
       koala-main(description: "Dylan Wiki",
                  before-startup: initialize-wiki);
     end;

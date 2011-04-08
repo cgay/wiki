@@ -2,9 +2,6 @@ Module: %wiki
 
 define constant $wiki-version :: <string> = "2011.04.07"; // YYYY.mm.dd
 
-define constant $log :: <logger> = make(<logger>,
-                                        name: "wiki",
-                                        targets: list($stdout-log-target));
 
 // If you need to hold more than one of these locks, acquire them in
 // this order: $group-lock, $user-lock, $page-lock.
@@ -115,7 +112,7 @@ define generic load
 
 define generic load-all
     (storage :: <storage>, class :: subclass(<wiki-object>))
- => (objects :: <collection>);
+ => (objects :: <sequence>);
 
 
 define generic store

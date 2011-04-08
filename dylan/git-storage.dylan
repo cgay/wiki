@@ -75,10 +75,17 @@ end;
 
 //// Initialization
 
+// Initialization is broken into two parts because writes are dependent
+// on the admin user existing.  The caller is expected to:
+// 1. initialize-storage-for-reads
+// 2. make admin user
+// 3. initialize-storage-for-writes, passing admin user
+// 4. store admin user
+
 /// Make sure the git repository directories exist and have been
 /// initialized as git repositories.
 ///
-define method initialize-storage
+define method initialize-storage-for-reads
     (storage :: <git-storage>) => ()
   ensure-directories-exist(storage.git-repository-root);
   ensure-directories-exist(storage.git-user-repository-root);
@@ -96,17 +103,20 @@ define method initialize-storage
   ensure-directories-exist(*pages-directory*);
   ensure-directories-exist(*groups-directory*);
   ensure-directories-exist(*users-directory*);
+end method initialize-storage-for-reads;
 
+define method initialize-storage-for-writes
+    (storage :: <git-storage>, admin :: <wiki-user>) => ()
+  log-debug("initialize-storage-for-writes");
   // Commits are all done by Administrator, with the Author set to the
   // user making the change.
-  let set-name = sformat("config --global user.name \"%s\"", *admin-user*.user-name);
-  let set-email = sformat("config --global user.email \"%s\"", *admin-user*.user-email);
+  let set-name = sformat("config --global user.name \"%s\"", admin.user-name);
+  let set-email = sformat("config --global user.email \"%s\"", admin.user-email);
   call-git(storage, set-name);
   call-git(storage, set-email);
   call-git(storage, set-name, working-directory: storage.git-user-repository-root);
   call-git(storage, set-email, working-directory: storage.git-user-repository-root);
-
-end method initialize-storage;
+end method initialize-storage-for-writes;
 
 
 //// Pages
@@ -118,7 +128,7 @@ define method load
     (storage :: <git-storage>, class == <wiki-page>, title :: <string>,
      #key revision :: <revision> = #"newest")
  => (page :: <wiki-page>)
-  log-debug($log, "Loading page %=", title);
+  log-debug("Loading page %=", title);
 
   let prefix = title-prefix(title);
   let etitle = encode-title(title);
@@ -151,7 +161,7 @@ define method store
      comment :: <string>)
  => (revision :: <string>)
   let title :: <string> = page.page-title;
-  log-info($log, "Storing page %=", title);
+  log-info("Storing page %=", title);
 
   let prefix = title-prefix(title);
   let etitle = encode-title(title);
@@ -239,21 +249,21 @@ end function title-prefix;
 ///
 define method load-all
     (storage :: <storage>, class == <wiki-user>)
- => (users :: <collection>)
-  log-info($log, "Loading all users...");
+ => (users :: <sequence>)
+  log-info("Loading all users...");
   let users = #();
   local method load-user(pathname :: <file-locator>)
           with-open-file(stream = pathname, direction: #"input")
             let creation-date = read-line(stream, on-end-of-stream: #f);
             let line = read-line(stream, on-end-of-stream: #f);
-            log-debug($log, "creation-date = %=", creation-date);
-            log-debug($log, "line = %=", line);
+            log-debug("creation-date = %=", creation-date);
+            log-debug("line = %=", line);
             users := pair(git-parse-user(creation-date, line),
                           users);
           end;
         end;
   do-object-files(*users-directory*, <wiki-user>, load-user);
-  log-info($log, "Loaded %d users from storage", users.size);
+  log-info("Loaded %d users from storage", users.size);
   reverse!(users)
 end method load-all;
 
@@ -277,7 +287,7 @@ define method store
      comment :: <string>)
  => (revision :: <string>)
   let name :: <string> = user.user-name;
-  log-info($log, "Storing user %=", name);
+  log-info("Storing user %=", name);
 
   let user-file = git-user-storage-file(storage, name);
   ensure-directories-exist(user-file);
@@ -342,8 +352,8 @@ end;
 ///
 define method load-all
     (storage :: <storage>, class == <wiki-group>)
- => (groups :: <collection>)
-  log-info($log, "Loading all groups...");
+ => (groups :: <sequence>)
+  log-info("Loading all groups...");
   let groups = #();
   local method load-group(file :: <file-locator>)
           with-open-file(stream = file, direction: #"input")
@@ -357,7 +367,7 @@ define method load-all
           end;
         end;
   do-object-files(*groups-directory*, <wiki-group>, load-group);
-  log-info($log, "Loaded %d groups from storage", groups.size);
+  log-info("Loaded %d groups from storage", groups.size);
   reverse!(groups)
 end;
 
@@ -375,7 +385,7 @@ define function git-parse-group
           if (user)
             user
           else
-            log-error($log, "Owner of group %= not found: %=", group-name, owner-name);
+            log-error("Owner of group %= not found: %=", group-name, owner-name);
             *admin-user*
           end
         end;
@@ -393,7 +403,7 @@ define method store
      comment :: <string>)
  => (revision :: <string>)
   let name :: <string> = group.group-name;
-  log-info($log, "Storing group %=", name);
+  log-info("Storing group %=", name);
 
   let group-file = git-group-storage-file(storage, name);
   ensure-directories-exist(group-file);
@@ -465,7 +475,7 @@ define function call-git
                       apply(sformat, command-fmt, format-args),
                       command-fmt));
   let cwd = working-directory | storage.git-repository-root;
-  log-debug($log, "Running command in cwd = %s: %s",
+  log-debug("Running command in cwd = %s: %s",
             as(<string>, cwd),
             command);
   let (exit-code, signal, child, stdout-stream, stderr-stream)
@@ -602,7 +612,7 @@ define function do-object-files
      fun :: <function>)
  => ()
   local method do-object-dir (directory, name, type)
-          log-debug($log, "do-object-dir(%=, %=, %=)", directory, name, type);
+          log-debug("do-object-dir(%=, %=, %=)", directory, name, type);
           // called once for each file/dir in a prefix directory
           if (class = <wiki-page> & type = #"directory")
             fun(subdirectory-locator(directory, name));
@@ -611,7 +621,7 @@ define function do-object-files
           end;
         end,
         method do-prefix-dir (directory, name, type)
-          log-debug($log, "do-prefix-dir(%=, %=, %=)", directory, name, type);
+          log-debug("do-prefix-dir(%=, %=, %=)", directory, name, type);
           // called once per prefix directory
           if (type = #"directory")
             do-directory(do-object-dir, subdirectory-locator(directory, name))

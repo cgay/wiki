@@ -131,18 +131,22 @@ define module %wiki
 
   // Storage
   export
+    *storage*,
     <storage>,
     <git-storage>,
     <storage-error>,
-    initialize-storage,
+    initialize-storage-for-reads,
+    initialize-storage-for-writes,
     load,
     load-all,
+    find-or-load-pages-with-tags,
     store,
     delete,
     rename;
     
   // Groups
   export
+    *groups*, $group-lock,
     <wiki-group>,
     group-name,
     group-owner,
@@ -151,6 +155,7 @@ define module %wiki
 
   // Pages
   export
+    *pages*, $page-lock,
     <wiki-page>,
     page-title,
     page-content,
@@ -163,10 +168,10 @@ define module %wiki
 
   // Users (the other bindings are exported from the users module, above)
   export
+    *users*, $user-lock,
     <wiki-user>,
     user-real-name,
-    *admin-user*,
-    *users*;
+    *admin-user*;
 
 end module %wiki;
 

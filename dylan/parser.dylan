@@ -176,7 +176,7 @@ define method make-link
       format(out, "<a href=\"%s%s\">%s%s</a>",
              *wiki-link-url*,
              title,
-             if (find-page(title)) "" else "[?]" end,
+             if (find-or-load-page(title)) "" else "[?]" end,
              title);
     else
       let bar = find(markup, '|', start: start, end: close);

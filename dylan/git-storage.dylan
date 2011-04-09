@@ -36,7 +36,7 @@ define constant $acls :: <byte-string> = "acls";
 define constant sformat = format-to-string;
 
 define constant $newline-regex :: <regex> = compile-regex("[\r\n]+");
-define constant $whitespace-regex :: <regex> = compile-regex("[\r\n\t]");
+define constant $whitespace-regex :: <regex> = compile-regex("[ \r\n\t]");
 define constant $git-author-regex :: <regex>
   = compile-regex("Author: .* <([^@]+)@.*>");
 
@@ -101,6 +101,8 @@ define method initialize-storage-for-reads
   *groups-directory* := subdirectory-locator(storage.git-repository-root, "groups");
 
   ensure-directories-exist(*pages-directory*);
+  ensure-directories-exist(subdirectory-locator(*pages-directory*,
+                                                $default-sandbox-name));
   ensure-directories-exist(*groups-directory*);
   ensure-directories-exist(*users-directory*);
 end method initialize-storage-for-reads;
@@ -131,7 +133,7 @@ define method load
   log-debug("Loading page %=", title);
 
   let prefix = title-prefix(title);
-  let etitle = encode-title(title);
+  let etitle = git-encode-title(title);
   let page-dir = subdirectory-locator(*pages-directory*,
                                       $default-sandbox-name,
                                       prefix,
@@ -156,7 +158,10 @@ define method load
        access-controls: acls)
 end method load;
 
-define method load-pages-with-tags
+// TODO: this should cache the tags and maintain a map of them in
+//       memory, to prevent having to scan the file system each time.
+//       (Though really, a full text index would be nice.)
+define method find-or-load-pages-with-tags
     (storage :: <storage>, tags :: <sequence>)
  => (pages :: <sequence>)
   let pages = make(<stretchy-vector>);
@@ -171,6 +176,8 @@ define method load-pages-with-tags
           let page-tags = iff(page,
                               page.page-tags,
                               load-page-tags(page-directory));
+          log-debug("LPWT: title = %=, page = %=, page-tags = %=, tags = %=",
+                    title, page, page-tags, tags);
           block (return)
             for (tag in tags)
               if (member?(tag, page-tags, test: \=))
@@ -180,9 +187,11 @@ define method load-pages-with-tags
             end;
           end block;
         end;
-  do-object-files(*pages-directory*, <wiki-page>, load-page-with-tags);
+  do-object-files(subdirectory-locator(*pages-directory*, $default-sandbox-name),
+                  <wiki-page>,
+                  load-page-with-tags);
   pages
-end method load-pages-with-tags;
+end method find-or-load-pages-with-tags;
 
 
 define method store
@@ -212,7 +221,7 @@ define method store
                    page-path, $content,
                    page-path, $tags,
                    page-path, $acls));
-  git-commit(storage, page-path, author, comment)
+  page.page-revision := git-commit(storage, page-path, author, comment)
 end method store;
 
 define method delete
@@ -499,7 +508,8 @@ define function call-git
     (storage :: <git-storage>, command-fmt :: <string>,
      #key error? :: <boolean> = #t,
           format-args,
-          working-directory)
+          working-directory,
+          debug?)
  => (stdout :: <string>,
      stderr :: <string>,
      exit-code :: <integer>)
@@ -525,6 +535,10 @@ define function call-git
   // will be needed eventually.
   let stdout = read-to-end(stdout-stream);
   let stderr = read-to-end(stderr-stream);
+  if (debug?)
+    log-debug("exit-code: %s\nstdout:\n%s\nstderr:\n%s",
+              exit-code, stdout, stderr);
+  end;
   if (error? & (exit-code ~= 0))
     git-error("Error running git command %=:\n"
               "exit code: %=\n"
@@ -699,7 +713,8 @@ define function %git-commit
                        author.user-name,
                        comment,
                        path),
-               working-directory: repo-root);
+               working-directory: repo-root,
+               debug?: #t);
   // The stdout from git commit looks like this:
   //     [git-backend 804b716] ...commit comment...
   //     1 files changed, 64 insertions(+), 24 deletions(-)
@@ -708,9 +723,14 @@ define function %git-commit
   if (~open-bracket | ~close-bracket)
     git-error("Unexpected output from the 'git commit' command: %=", stdout);
   else
-    let parts = split(slice(stdout, open-bracket + 1, close-bracket), $whitespace-regex);
-    let hash = elt(parts, -1);
-    hash
+    let parts = split(slice(stdout, open-bracket + 1, close-bracket),
+                      $whitespace-regex);
+    let short-hash = elt(parts, -1);
+    // Unfortunately we have to run another command to get the full hash...
+    trim(call-git(storage,
+                  sformat("rev-list --max-count 1 %s", short-hash),
+                  working-directory: repo-root,
+                  debug?: #t))
   end
 end function %git-commit;
 

@@ -272,7 +272,7 @@ end;
 
 define method respond-to-get
     (acls-page :: <acls-page>, #key title :: <string>)
-  let wiki-page = find-page(percent-decode(title));
+  let wiki-page = find-or-load-page(percent-decode(title));
   if (wiki-page)
     set-attribute(page-context(), "owner-name", wiki-page.page-owner.user-name);
     dynamic-bind (*page* = wiki-page)
@@ -291,7 +291,7 @@ end method respond-to-get;
 //
 define method respond-to-post
     (acls-page :: <acls-page>, #key title :: <string>)
-  let wiki-page = find-page(percent-decode(title));
+  let wiki-page = find-or-load-page(percent-decode(title));
   if (~wiki-page)
     // Someone used an old URL or typed it in by hand...
     resource-not-found-error(url: request-url(current-request()));

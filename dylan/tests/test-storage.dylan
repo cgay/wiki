@@ -3,7 +3,9 @@ Synopsis: Tests of the storage protocol
 
 // This should be the only function here that depends on the git back-end.
 // TODO: make paths configurable
-define function make-storage
+// TODO: don't re-use the same storage directory each time since it makes debugging
+//       hard.  Create a new directory for each test.
+define function init-storage
     () => (storage :: <storage>)
   let base = as(<directory-locator>, "c:/tmp/storage-test-suite");
   let main = subdirectory-locator(base, "main-storage");
@@ -17,17 +19,12 @@ define function make-storage
                      repository-root: main,
                      user-repository-root: user,
                      executable: git-exe);
-  // There are some chicken & egg problems with *admin-user* and initialize-storage...
   init-admin-user(storage);
-  initialize-storage(storage);
+  initialize-storage-for-reads(storage);
+// temp
+//  initialize-storage-for-writes(storage, *admin-user*);
   store(storage, *admin-user*, *admin-user*, "init-admin-user");
-  storage
-end function make-storage;
-
-define function init-storage
-    () => (storage :: <storage>)
-  let storage = make-storage();
-  initialize-storage(storage);
+  *storage* := storage;
   storage
 end;
 
@@ -45,11 +42,21 @@ define function init-admin-user
 end function init-admin-user;
 
 
-define test test-initalize-storage ()
-  let storage = make-storage();
-  check-no-condition("initialize storage", initialize-storage(storage));
-  check-no-condition("reinitialize storage", initialize-storage(storage));
-end;
+define function make-test-page
+    (#key title, content, comment, owner, author, tags, access-controls)
+ => (page :: <wiki-page>)
+  let title = title | "Title";
+  with-lock ($page-lock)
+    *pages*[title] := make(<wiki-page>,
+                           title: title,
+                           content: content | "Content",
+                           comment: comment | "Comment",
+                           owner: owner | *admin-user*,
+                           author: author | *admin-user*,
+                           tags: tags | #("tag"),
+                           access-controls: access-controls | $default-access-controls)
+  end
+end function make-test-page;
 
 define suite user-test-suite ()
   test test-save/load-user;
@@ -111,14 +118,7 @@ end;
 
 define test test-save/load-page ()
   let storage = init-storage();
-  let old-page = make(<wiki-page>,
-                      title: "Title",
-                      content: "Content",
-                      comment: "Comment",
-                      owner: *admin-user*,
-                      author: *admin-user*,
-                      tags: #("tag"),
-                      access-controls: $default-access-controls);
+  let old-page = make-test-page();
   store(storage, old-page, old-page.page-author, old-page.page-comment);
   let new-page = load(storage, <wiki-page>, old-page.page-title);
   for (fn in list(page-title,
@@ -192,13 +192,43 @@ end;
 /// Verify that when pages are created references to other pages are
 /// updated correctly.
 define test test-page-references ()
+  // ---*** fill me in
 end;
 
+define test test-find-or-load-pages-with-tags ()
+  let storage = init-storage();
+  let page1 = make-test-page(title: "p1", tags: #());
+  let page2 = make-test-page(title: "p2", tags: #("tag2"));
+  let page3 = make-test-page(title: "p3", tags: #("tag3"));
+  for (page in list(page1, page2, page3))
+    store(storage, page, *admin-user*, "comment");
+  end;
+  check-true("revision slot bound after storing page",
+             slot-initialized?(page3, page-revision));
+
+  // This checks for identity because the page was already loaded.
+  check-equal("find pages with tag2",
+              find-or-load-pages-with-tags(storage, #("tag2")),
+              list(page2));
+
+  // This checks only that title and revision are equal because the page
+  // was loaded and therefore isn't == to page3.
+  remove-key!(*pages*, page3.page-title);
+  let pages = find-or-load-pages-with-tags(storage, #("tag3"));
+  break("pages = %=", pages);
+  check-equal("found one page with tag3", pages.size, 1);
+  check-true("found page3",
+             (pages[0].page-title = page3.page-title)
+             & (pages[0].page-revision = page3.page-revision));
+end test test-find-or-load-pages-with-tags;
+
+
+
 define suite storage-test-suite ()
-  test test-initalize-storage;
   suite user-test-suite;
   suite page-test-suite;
   suite group-test-suite;
   test test-page-references;
+  test test-find-or-load-pages-with-tags;
 end suite storage-test-suite;
 

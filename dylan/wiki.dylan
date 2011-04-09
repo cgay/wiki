@@ -102,8 +102,11 @@ define variable *storage* :: false-or(<storage>) = #f;
 
 
 /// Initialize storage upon startup
-define generic initialize-storage
+define generic initialize-storage-for-reads
     (storage :: <storage>) => ();
+
+define generic initialize-storage-for-writes
+    (storage :: <storage>, admin-user :: <wiki-user>) => ();
 
 
 define generic load
@@ -115,7 +118,7 @@ define generic load-all
     (storage :: <storage>, class :: subclass(<wiki-object>))
  => (objects :: <sequence>);
 
-define generic load-pages-with-tags
+define generic find-or-load-pages-with-tags
     (storage :: <storage>, tags :: <sequence>) => (pages :: <sequence>);
 
 define generic store

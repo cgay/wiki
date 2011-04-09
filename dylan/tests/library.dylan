@@ -11,6 +11,8 @@ define library wiki-test-suite
 
 end library wiki-test-suite;
 
+
+
 define module wiki-test-suite
   use common-dylan;
   use file-system;
@@ -24,6 +26,7 @@ define module wiki-test-suite
   use operating-system,
     import: { application-name };
   use testworks;
+  use threads;
   use wiki;
   use %wiki;
 

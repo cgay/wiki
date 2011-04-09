@@ -68,22 +68,25 @@ define method redirect-to (page :: <wiki-page>)
 end;
 
 
-//// Load pages
-
 define method find-page
     (title :: <string>)
  => (page :: false-or(<wiki-page>))
   element(*pages*, title, default: #f)
+end;
+
+define method find-or-load-page
+    (title :: <string>)
+  find-page(title)
   | begin
       // Load page is slow, do it without the lock held.
       let loaded-page = load(*storage*, <wiki-page>, title);
       with-lock ($page-lock)
         // check again with lock held
-        element(*pages*, title, default: #f)
+        find-page(title)
         | (*pages*[title] := loaded-page)
       end
     end
-end method find-page;
+end method find-or-load-page;
 
 
 // todo -- Implement this as a wiki page.
@@ -97,7 +100,7 @@ end;
 define method save-page
     (title :: <string>, content :: <string>, comment :: <string>, tags :: <sequence>)
  => (page :: <wiki-page>)
-  let page :: false-or(<wiki-page>) = find-page(title);
+  let page = find-or-load-page(title);
   if (~page)
     page := make(<wiki-page>,
                  title: title,
@@ -170,7 +173,7 @@ define method rename-page
     (title :: <string>, new-title :: <string>,
      #key comment :: <string> = "")
  => ()
-  let page = find-page(title);
+  let page = find-or-load-page(title);
   if (page)
     rename-page(page, new-title, comment: comment)
   end if;
@@ -232,7 +235,7 @@ end;
 
 define method respond-to-get
     (page :: <page-versions-page>, #key title :: <string>)
-  let wiki-page = find-page(percent-decode(title));
+  let wiki-page = find-or-load-page(percent-decode(title));
   if (wiki-page)
     set-attribute(page-context(), "title", percent-decode(title));
     set-attribute(page-context(), "page-versions",
@@ -269,7 +272,7 @@ end;
 define method respond-to-get
     (page :: <connections-page>, #key title :: <string>)
   let title = percent-decode(title);
-  dynamic-bind (*page* = find-page(title))
+  dynamic-bind (*page* = find-or-load-page(title))
     if (*page*)
       next-method();
     else
@@ -319,9 +322,8 @@ define method respond-to-get
 end method respond-to-get;
 
 define method do-remove-page (#key title)
-  let page = find-page(percent-decode(title));
+  let page = find-or-load-page(percent-decode(title));
   delete(*storage*, page, authenticated-user(), get-query-value("comment") | "");
-  // TODO: huh?  Can't redirect to the deleted page.
   redirect-to(page);
 end;
 
@@ -353,7 +355,7 @@ end;
 define method show-page-responder
     (#key title :: <string>, version)
   let title = percent-decode(title);
-  dynamic-bind (*page* = find-page(title))
+  dynamic-bind (*page* = find-or-load-page(title))
     respond-to-get(case
                      *page* => *view-page-page*;
                      authenticated-user() => *edit-page-page*;
@@ -373,7 +375,7 @@ define method respond-to-get
   if (authenticated-user())
     set-attribute(pc, "title", title);
     set-attribute(pc, "previewing?", previewing?);
-    dynamic-bind (*page* = find-page(title))
+    dynamic-bind (*page* = find-or-load-page(title))
       if (*page*)
         let content = get-query-value("content") | *page*.page-content;
         set-attribute(pc, "content", content);
@@ -399,10 +401,10 @@ define method respond-to-post
     let new-title = new-title & trim(new-title);
 
     // Handle page renaming.
-    // todo -- potential race conditions here.  Should really lock the old and
-    //         new pages around the find-page and rename-page. Low priority now.
+    // TODO: potential race conditions here.  Should really lock the old and
+    //       new pages around the find-page and rename-page. Low priority now.
     if (new-title & ~empty?(new-title) & new-title ~= title)
-      if (find-page(new-title))
+      if (find-or-load-page(new-title))
         add-field-error("title", "A page with this title already exists.");
       else
         title := new-title;
@@ -533,7 +535,7 @@ end tag show-diff-entry;
 define method redirect-to-page-or
     (page :: <wiki-dsp>, #key title :: <string>)
   let title = percent-decode(title);
-  dynamic-bind (*page* = find-page(title))
+  dynamic-bind (*page* = find-or-load-page(title))
     if (*page*)
       respond-to-get(page);
     else

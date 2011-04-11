@@ -8,12 +8,56 @@ Synopsis: User account management.
 
 define thread variable *user-username* = #f;
 
+define thread variable *authenticated-user* = #f;
+
+// The default "realm" value passed in the WWW-Authenticate header.
+//
+define variable *default-authentication-realm* :: <string> = "koala";
+
+// Because clients (browsers) continue to send the Authentication header
+// once an authentication has been accepted (at least until the browser
+// is restarted, it seems) we need to keep track of the fact that a user
+// has logged out by storing the auth values here.
+//
+// Also, note that if the server restarts and browsers resend the auth,
+// the user is suddenly logged in again.  Yikes.
+//
+define variable *ignore-authorizations* = list();
+define variable *ignore-logins* = list();
+
 
 // TODO: options to specify which fields are visible to whom.  (acls)
 //
-define class <wiki-user> (<wiki-object>, <user>)
+define class <wiki-user> (<wiki-object>)
+
+  slot user-name :: <string>,
+    required-init-keyword: name:;
+
   slot %user-real-name :: false-or(<string>) = #f,
     init-keyword: real-name:;
+
+  slot user-password :: <string>,
+    required-init-keyword: password:;
+
+  slot user-email :: <string>,
+    required-init-keyword: email:;
+
+  slot administrator? :: <boolean> = #f,
+    init-keyword: administrator?:;
+
+  slot user-activation-key :: <string>,
+    init-keyword: activation-key:;
+
+  slot user-activated? :: <boolean> = #f,
+    init-keyword: activated?:;
+end class <wiki-user>;
+
+define method initialize
+    (user :: <wiki-user>, #key)
+  next-method();
+  if (~slot-initialized?(user, user-activation-key))
+    user.user-activation-key := generate-activation-key(user);
+  end;
 end;
 
 define generic user-real-name
@@ -27,17 +71,108 @@ end;
 // This is set when the config file is loaded.
 define variable *admin-user* :: false-or(<wiki-user>) = #f;
 
+define method generate-activation-key
+    (user :: <wiki-user>)
+ => (key :: <string>)
+  // temporary.  should be more secure.
+  base64-encode(concatenate(user.user-name, user.user-email))
+end;
+
+// What's this for?
+define method as (class == <string>, user :: <wiki-user>)
+ => (result :: <string>)
+  user.user-name;
+end;
+
+define function authenticated-user ()
+ => (user :: false-or(<wiki-user>))
+  authenticate();
+  *authenticated-user*
+end;
+
+define method \=
+    (user1 :: <wiki-user>, user2 :: <wiki-user>)
+ => (equal? :: <boolean>)
+  user1.user-name = user2.user-name
+end;
+
+define method login
+    (#key realm :: false-or(<string>))
+  let redirect-url = get-query-value("redirect");
+  let user = check-authorization();
+  if (~user)
+    require-authorization(realm: realm);
+  elseif (member?(user, *ignore-authorizations*, test: \=) &
+          member?(user, *ignore-logins*, test: \=))
+    *ignore-authorizations* := remove!(*ignore-authorizations*, user);
+    require-authorization(realm: realm);
+  elseif (~member?(user, *ignore-authorizations*, test: \=) &
+          member?(user, *ignore-logins*, test: \=))
+    *ignore-logins* := remove!(*ignore-logins*, user);
+    redirect-url & redirect-to(redirect-url);
+  else
+    redirect-url & redirect-to(redirect-url);
+  end if;
+end;
+
+define function logout ()
+  let user = check-authorization();
+  if (user)
+    *authenticated-user* := #f;
+    *ignore-authorizations* :=
+      add!(*ignore-authorizations*, user);
+    *ignore-logins* :=
+      add!(*ignore-logins*, user);
+  end if;
+  let redirect-url = get-query-value("redirect");
+  redirect-url & redirect-to(redirect-url);
+end;
+
+define function check-authorization
+    () => (user :: false-or(<wiki-user>))
+  log-debug("request headers = %=", current-request().raw-headers);
+  for (value keyed-by key in current-request().raw-headers)
+    log-debug("*** %s: %s", key, value);
+  end;
+  let authorization = get-header(current-request(), "Authorization", parsed: #t);
+  log-debug("*** Retrieved Authorization header: %=", authorization);
+  if (authorization)
+    let name = head(authorization);
+    let pass = tail(authorization);
+    let user = find-user(name);
+    if (user
+          & user.user-activated?
+          & user.user-password = pass)
+      user
+    end
+  else
+    break();
+  end
+end function check-authorization;
+
+define function authenticate
+    () => (user :: false-or(<wiki-user>))
+  let user = check-authorization();
+  if (user)
+    *authenticated-user*
+      := if (~member?(user, *ignore-authorizations*, test: \=)
+               & ~member?(user, *ignore-logins*, test: \=))
+           user
+         end;
+  end
+end function authenticate;
+
+define function require-authorization
+    (#key realm :: false-or(<string>))
+  let realm = realm | *default-authentication-realm*;
+  let headers = current-response().raw-headers;
+  set-header(headers, "WWW-Authenticate", concatenate("Basic realm=\"", realm, "\""));
+  unauthorized-error(headers: headers);
+end;
+
 define wf/object-test (user) in wiki end;
 
-/*
-define wf/action-tests
- (add-user, edit-user, remove-user, list-users)
-in wiki end;
-*/
-
-define wf/error-tests
- (username, password, email)
-in wiki end;
+define wf/error-tests (username, password, email) in wiki end;
 
 
 // url

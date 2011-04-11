@@ -2,6 +2,7 @@ Module: dylan-user
 Author: turbo24prg, Carl Gay
 
 define library wiki
+  use base64;
   use collection-extensions,
     import: { sequence-diff };
   use collections,
@@ -52,6 +53,7 @@ define module wiki
 end;
 
 define module %wiki
+  use base64;
   use changes,
     prefix: "wf/",
     exclude: { <uri> };
@@ -86,18 +88,6 @@ define module %wiki
   use regular-expressions;
   use uncommon-dylan;
   use uri;
-  use users,
-    exclude: { find-user },
-    export: {
-      <wiki-user>,
-      user-name,
-      user-password,
-      user-email,
-      administrator?,
-      user-activation-key,
-      user-activated?
-      };
-
   use web-framework,
     prefix: "wf/";
   use wiki;
@@ -166,11 +156,17 @@ define module %wiki
     page-access-controls,
     page-revision;
 
-  // Users (the other bindings are exported from the users module, above)
+  // Users
   export
     *users*, $user-lock,
     <wiki-user>,
     user-real-name,
+    user-name,
+    user-password,
+    user-email,
+    administrator?,
+    user-activation-key,
+    user-activated?,
     *admin-user*;
 
 end module %wiki;

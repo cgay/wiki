@@ -135,7 +135,7 @@ define constant $default-access-controls
          modify-acls:    list(make(<rule>, action: $allow, target: $owner)));
 
 define method has-permission?
-    (user :: false-or(<user>),
+    (user :: false-or(<wiki-user>),
      page :: false-or(<wiki-page>),
      requested-operation :: <acl-operation>)
  => (has-permission? :: <boolean>)
@@ -261,7 +261,7 @@ define method unparse-rule
               end,
               select (target by instance?)
                 <symbol> => as-lowercase(as(<string>, target));
-                <user> => target.user-name;
+                <wiki-user> => target.user-name;
                 <wiki-group> => target.group-name;
                 otherwise => error("Invalid rule target: %s", target);
               end)

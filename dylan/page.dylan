@@ -651,7 +651,7 @@ define method find-tagged-pages
     (tags :: <sequence>,  // strings
      #key order-by :: <function> = more-recently-published?)
  => (pages :: <sequence>)
-  sort(load-pages-with-tags(*storage*, tags),
+  sort(find-or-load-pages-with-tags(*storage*, tags),
        test: order-by)
 end method find-tagged-pages;
 

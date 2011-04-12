@@ -77,7 +77,7 @@ end;
 define method find-or-load-page
     (title :: <string>)
   find-page(title)
-  | begin
+  | block ()
       // Load page is slow, do it without the lock held.
       let loaded-page = load(*storage*, <wiki-page>, title);
       with-lock ($page-lock)
@@ -85,7 +85,9 @@ define method find-or-load-page
         find-page(title)
         | (*pages*[title] := loaded-page)
       end
-    end
+    exception (ex :: <git-storage-error>)
+      // ignored
+    end;
 end method find-or-load-page;
 
 

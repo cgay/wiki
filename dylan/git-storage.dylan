@@ -238,15 +238,6 @@ define method rename
   TODO--rename-page;
 end;
 
-define function git-page-storage-directory
-    (storage :: <git-storage>, title :: <string>)
- => (directory :: <directory-locator>)
-  subdirectory-locator(*pages-directory*,
-                       $default-sandbox-name,
-                       title-prefix(title),
-                       git-encode-title(title))
-end;
-
 /// Encode the title to make it safe for use as a directory name.
 ///
 define function git-encode-title

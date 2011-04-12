@@ -130,12 +130,7 @@ end;
 
 define function check-authorization
     () => (user :: false-or(<wiki-user>))
-  log-debug("request headers = %=", current-request().raw-headers);
-  for (value keyed-by key in current-request().raw-headers)
-    log-debug("*** %s: %s", key, value);
-  end;
   let authorization = get-header(current-request(), "Authorization", parsed: #t);
-  log-debug("*** Retrieved Authorization header: %=", authorization);
   if (authorization)
     let name = head(authorization);
     let pass = tail(authorization);
@@ -694,4 +689,37 @@ define named-method can-modify-user?
                 user-name & (find-user(percent-decode(user-name)) = user)
               end)
 end;
+
+
+define tag show-login-url in wiki (page :: <dylan-server-page>)
+    (redirect :: type-union(<string>, <boolean>), current :: <boolean>)
+  let url = parse-url("/login");
+  if (redirect)
+    url.uri-query["redirect"] := if (current) 
+                                   build-uri(request-url(current-request()))
+                                 else 
+                                   redirect
+                                 end;
+  end if;
+  output("%s", url);
+end;
+
+define tag show-logout-url in wiki (page :: <dylan-server-page>)
+    (redirect :: type-union(<string>, <boolean>), current :: <boolean>)
+  let url = parse-url("/logout");
+  if (redirect)
+    url.uri-query["redirect"] := if (current) 
+                                   build-uri(request-url(current-request())) 
+                                 else
+                                   redirect
+                                 end;
+  end if;
+  output("%s", url);
+end;
+
+
+define named-method authenticated? in wiki (page :: <dylan-server-page>)
+  authenticated-user()
+end;
+
 

@@ -140,8 +140,6 @@ define function check-authorization
           & user.user-password = pass)
       user
     end
-  else
-    break();
   end
 end function check-authorization;
 

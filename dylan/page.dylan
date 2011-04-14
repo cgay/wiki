@@ -104,12 +104,15 @@ define method save-page
  => (page :: <wiki-page>)
   let page = find-or-load-page(title);
   if (~page)
+    let user = authenticated-user();
     page := make(<wiki-page>,
                  title: title,
                  content: content,
                  tags: tags | #(),
                  comment: comment,
-                 owner: authenticated-user());
+                 author: user,
+                 owner: user,
+                 access-controls: $default-access-controls);
   end;
   page.page-revision := store(*storage*, page, page.page-author, comment);
 /*
@@ -414,7 +417,7 @@ define method respond-to-post
       end;
     end;
 
-    let author :: <wiki-user> = authenticated-user();
+    let author = authenticated-user();
     if (page & ~has-permission?(author, page, $modify-content))
       add-page-error("You do not have permission to edit this page.");
     end;

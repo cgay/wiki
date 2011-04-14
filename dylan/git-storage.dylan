@@ -217,7 +217,7 @@ define method store
   store-blob(file-locator(page-dir, $acls), acls-to-string(page));
 
   call-git(storage,
-           sformat("add %s/%s %s/%s %s/%s",
+           sformat("add \"%s/%s\" \"%s/%s\" \"%s/%s\"",
                    page-path, $content,
                    page-path, $tags,
                    page-path, $acls));
@@ -338,7 +338,7 @@ define method store
                      git-encode-boolean(user.user-activated?)));
 
   let user-path = git-user-path(name);
-  call-git(storage, sformat("add %s", user-path),
+  call-git(storage, sformat("add \"%s\"", user-path),
            working-directory: storage.git-user-repository-root);
   git-user-commit(storage, user-path, author, comment)
 end method store;
@@ -452,7 +452,7 @@ define method store
                      group.group-description));
 
   let group-path = git-group-path(name);
-  call-git(storage, sformat("add %s", group-path));
+  call-git(storage, sformat("add \"%s\"", group-path));
   git-commit(storage, group-path, author, comment)
 end method store;
 
@@ -555,7 +555,7 @@ define function git-load-blob
  => (blob :: <string>)
   let (stdout, stderr, exit-code)
     = call-git(storage,
-               sformat("show %s:%s",
+               sformat("show \"%s:%s\"",
                        iff(revision = #"newest", "HEAD", revision),
                        path),
                working-directory: working-directory);
@@ -699,7 +699,7 @@ define function %git-commit
   //       Do I need to maintain the git authorsfile also?
   let (stdout, stderr, exit-code)
     = call-git(storage,
-               sformat("commit --author \"%s <%s@opendylan.org>\" -m \"%s\" %s",
+               sformat("commit --author \"%s <%s@opendylan.org>\" -m \"%s\" \"%s\"",
                        author.user-real-name,
                        author.user-name,
                        comment,
@@ -736,7 +736,7 @@ define function git-load-commit
     (storage :: <git-storage>, path :: <string>, revision :: <revision>)
  => (commit :: <commit>)
   let (stdout, stderr, exit-code)
-    = call-git(storage, sformat("log -1 --log-size --date=iso -- %s", path));
+    = call-git(storage, sformat("log -1 --log-size --date=iso -- \"%s\"", path));
 
   let lines = split(stdout, "\n");
   let commit-line = lines[0];

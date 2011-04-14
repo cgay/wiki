@@ -21,7 +21,7 @@ end;
 
 
 /// All groups are loaded from storage at startup and stored in this collection.
-/// Users created after startup are added.  Keys are lowercased.
+/// Groups created after startup are added.  Keys are lowercased.
 ///
 define variable *groups* :: <string-table> = make(<string-table>);
 
@@ -31,7 +31,8 @@ define constant $group-lock :: <lock> = make(<lock>);
 
 /// Pages are stored here as they are lazily loaded.  find-page first
 /// looks here and if not found, loads the page and stores it here.
-/// Keys are page titles (not encoded) and values are <wiki-page>s.
+/// Keys are page titles (not encoded, not lowercased) and values are
+/// <wiki-page>s.
 ///
 define variable *pages* :: <string-table> = make(<string-table>);
 

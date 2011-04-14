@@ -444,6 +444,9 @@ define method respond-to-post
       next-method();
     else
       block ()
+        with-lock ($user-lock)
+          *users*[as-lowercase(user.user-name)] := user;
+        end;
         store(*storage*, user, active-user, "New user created");
         add-page-note("User %s created.  Please follow the link in the confirmation "
                       "email sent to %s to activate the account.",
@@ -536,7 +539,7 @@ define method respond-to-post
       if (user)
         let comments = make(<stretchy-vector>);
         if (user.user-name ~= new-name)
-          remove-key!(*users*, name);  // old name
+          remove-key!(*users*, as-lowercase(name));  // old name
           user.user-name := new-name;
           add!(comments, format-to-string("renamed to %s", new-name));
         end;

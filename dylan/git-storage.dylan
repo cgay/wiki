@@ -702,7 +702,7 @@ define function %git-commit
                sformat("commit --author \"%s <%s@opendylan.org>\" -m \"%s\" \"%s\"",
                        author.user-real-name,
                        author.user-name,
-                       comment,
+                       iff(trim(comment) = "", "-", comment),
                        path),
                working-directory: repo-root,
                debug?: #t);

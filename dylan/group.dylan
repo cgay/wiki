@@ -70,7 +70,7 @@ end;
 define method find-group
     (name :: <string>)
  => (group :: false-or(<wiki-group>))
-  element(*users*, name, default: #f)
+  element(*groups*, as-lowercase(name), default: #f)
 end;
 
 // Find all groups that a user is a member of.
@@ -115,9 +115,10 @@ define method rename-group
     let comment = concatenate("was: ", group.group-name, ". ", comment);
     // TODO: verify that tables are not thread safe already
     with-lock ($group-lock)
-      remove-key!(*groups*, group.group-name);
+      let key = as-lowercase(group.group-name);
+      remove-key!(*groups*, key);
       group.group-name := new-name;
-      *groups*[new-name] := group;
+      *groups*[key] := group;
     end;
     store(*storage*, group, authenticated-user(), comment);
   end if;
@@ -131,6 +132,9 @@ define method create-group
                    name: name,
                    owner: author);
   store(*storage*, group, author, comment);
+  with-lock ($group-lock)
+    *groups*[as-lowercase(name)] := group;
+  end;
   group
 end method create-group;
 
@@ -156,7 +160,7 @@ define method remove-group
     (group :: <wiki-group>, #key comment :: <string> = "deleted")
  => ()
   with-lock ($group-lock)
-    remove-key!(*groups*, group.group-name);
+    remove-key!(*groups*, as-lowercase(group.group-name));
   end;
   with-lock ($page-lock)
     for (page in *pages*)

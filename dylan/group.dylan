@@ -116,7 +116,7 @@ define method rename-group
     end;
     let comment = concatenate("was: ", group.group-name, ". ", comment);
     with-lock ($group-lock)
-      remove-key!(*groups*, old-lc-name));
+      remove-key!(*groups*, old-lc-name);
       group.group-name := new-name;
       *groups*[new-lc-name] := group;
     end;

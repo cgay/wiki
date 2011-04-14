@@ -447,7 +447,7 @@ define method respond-to-post
         with-lock ($user-lock)
           *users*[as-lowercase(user.user-name)] := user;
         end;
-        store(*storage*, user, active-user, "New user created");
+        store(*storage*, user, user, "New user created");
         add-page-note("User %s created.  Please follow the link in the confirmation "
                       "email sent to %s to activate the account.",
                       new-name, email);

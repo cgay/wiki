@@ -265,7 +265,6 @@ define function add-wiki-responders
   local method add (url, resource, #rest args)
           apply(add-resource,
                 http-server, concatenate(*wiki-url-prefix*, url), resource,
-                trailing-slash: #t,
                 args);
         end;
   add("/static", make(<directory-resource>, directory: *static-directory*));

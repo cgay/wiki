@@ -321,9 +321,7 @@ define method respond-to-post
       note-errors(vc-rules, "view-content");
       note-errors(mc-rules, "modify-content");
       note-errors(ma-rules, "modify-acls");
-      dynamic-bind (wf/*form* = current-request().request-query-values)
-        respond-to-get(acls-page, title: title);
-      end;
+      respond-to-get(acls-page, title: title);
     else
       // todo -- Probably should save a <wiki-change> of some sort.
       //         I haven't figured out what the Master Plan was yet.

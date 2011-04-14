@@ -207,8 +207,8 @@ define method do-save-file (#key filename)
     redirect-to(find-user(username));
   else
     current-request().request-query-values["password"] := "";
-    dynamic-bind (*errors* = errors, *form* = current-request().request-query-values)
-      respond-to(#"get", *edit-user-page*);
+    dynamic-bind (*errors* = errors)
+      respond-to-get(*edit-user-page*);
     end;
   end if;
 */
@@ -237,13 +237,10 @@ define constant show-remove-file =
 
 define tag show-file-filename in wiki (page :: <wiki-dsp>)
  ()
-  output("%s", if (*file*)
-      escape-xml(*file*.file-filename)
-    elseif (*form* & element(*form*, "filename", default: #f))
-      escape-xml(*form*["filename"])
-    elseif (*file-filename*)
-      *file-filename*
-    else "" end if);
+  output("%s", (*file* & escape-xml(*file*.file-filename))
+               | get-query-value("filename")
+               | *file-filename*
+               | "");
 end;
 
 define tag show-file-permanent-link in wiki (page :: <wiki-dsp>)

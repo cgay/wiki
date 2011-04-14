@@ -500,7 +500,7 @@ define function call-git
      #key error? :: <boolean> = #t,
           format-args,
           working-directory,
-          debug?)
+          debug? = #t)
  => (stdout :: <string>,
      stderr :: <string>,
      exit-code :: <integer>)
@@ -737,23 +737,27 @@ define function git-load-commit
  => (commit :: <commit>)
   let (stdout, stderr, exit-code)
     = call-git(storage, sformat("log -1 --log-size --date=iso -- \"%s\"", path));
-
   let lines = split(stdout, "\n");
-  let commit-line = lines[0];
-  let log-size-line = lines[1]; // Note: includes author and date line lengths
-  let author-line = lines[2];
-  let date-line = lines[3];
-  let comment = trim(join(slice(lines, 4, #f), "\n"));
+  if (exit-code = 0 & lines.size >=4)
+    let commit-line = lines[0];
+    let log-size-line = lines[1]; // Note: includes author and date line lengths
+    let author-line = lines[2];
+    let date-line = lines[3];
+    let comment = trim(join(slice(lines, 4, #f), "\n"));
 
-  let hash = split(commit-line, ' ')[1];
-  let log-size = string-to-integer(split(log-size-line, ' ')[2]);
-  let date = parse-iso8601-string(trim(slice(date-line, "Date:".size, #f)),
-                                  strict?: #f);
+    let hash = split(commit-line, ' ')[1];
+    let log-size = string-to-integer(split(log-size-line, ' ')[2]);
+    let date = parse-iso8601-string(trim(slice(date-line, "Date:".size, #f)),
+                                    strict?: #f);
 
-  let match = regex-search($git-author-regex, author-line);
-  let author = match-group(match, 1);
+    let match = regex-search($git-author-regex, author-line);
+    let author = match-group(match, 1);
 
-  make(<commit>, hash: hash, author: author, /*date: date,*/ comment: comment)
+    make(<commit>, hash: hash, author: author, /*date: date,*/ comment: comment)
+  else
+    git-error("Unable to load commit info for %= at revision %=",
+              path, revision);
+  end
 end function git-load-commit;
 
 define function tags-to-string

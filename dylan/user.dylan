@@ -596,26 +596,17 @@ end;
 
 define tag show-user-username in wiki (page :: <wiki-dsp>)
     ()
-  output("%s", if (*user*)
-                 escape-xml(*user*.user-name)
-               elseif (wf/*form* & element(wf/*form*, "username", default: #f))
-                 escape-xml(wf/*form*["username"])
-               elseif (*user-username*)
-                 *user-username*
-               else
-                 ""
-               end if);
+  output("%s", (*user* & escape-xml(*user*.user-name))
+               | get-query-value("username")
+               | *user-username*
+               | "");
 end;
 
 define tag show-user-email in wiki (page :: <wiki-dsp>)
     ()
-  output("%s", if (*user*)
-                 escape-xml(*user*.user-email);
-               elseif (wf/*form* & element(wf/*form*, "email", default: #f))
-                 escape-xml(wf/*form*["email"]);
-               else
-                 ""
-               end if);
+  output("%s", (*user* & escape-xml(*user*.user-email))
+               | get-query-value("email")
+               | "");
 end;
 
 define tag show-user-permanent-link in wiki (page :: <wiki-dsp>)

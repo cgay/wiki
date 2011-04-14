@@ -102,20 +102,21 @@ end;
 define method save-page
     (title :: <string>, content :: <string>, comment :: <string>, tags :: <sequence>)
  => (page :: <wiki-page>)
-  let page = find-or-load-page(title);
-  if (~page)
-    let user = authenticated-user();
-    page := make(<wiki-page>,
-                 title: title,
-                 content: content,
-                 tags: tags | #(),
-                 comment: comment,
-                 author: user,
-                 owner: user,
-                 access-controls: $default-access-controls);
+  let user = authenticated-user();
+  let page = make(<wiki-page>,
+                  title: title,
+                  content: content,
+                  tags: tags | #(),
+                  comment: comment,
+                  author: user,
+                  owner: user,
+                  access-controls: $default-access-controls);
+  with-lock ($page-lock)
+    *pages*[title] := page;
   end;
   page.page-revision := store(*storage*, page, page.page-author, comment);
 /*
+  TODO: 
   block ()
     generate-connections-graph(page);
   exception (ex :: <serious-condition>)
@@ -373,16 +374,15 @@ define class <edit-page-page> (<wiki-dsp>)
 end;
 
 define method respond-to-get
-    (page :: <edit-page-page>, #key title :: <string>, previewing?)
+    (page :: <edit-page-page>, #key title :: <string>)
   let title = percent-decode(title);
   let pc = page-context();
   if (authenticated-user())
     set-attribute(pc, "title", title);
-    set-attribute(pc, "previewing?", previewing?);
+    set-attribute(pc, "previewing?", #f);
     dynamic-bind (*page* = find-or-load-page(title))
       if (*page*)
-        let content = get-query-value("content") | *page*.page-content;
-        set-attribute(pc, "content", content);
+        set-attribute(pc, "content", *page*.page-content);
         set-attribute(pc, "owner", *page*.page-owner);
         set-attribute(pc, "tags", unparse-tags(*page*.page-tags));
       end;
@@ -399,7 +399,7 @@ end method respond-to-get;
 define method respond-to-post
     (wiki-dsp :: <edit-page-page>, #key title :: <string>)
   let title = percent-decode(title);
-  let page = find-page(title);
+  let page = find-or-load-page(title);
   with-query-values (title as new-title, content, comment, tags, button)
     let tags = iff(tags, parse-tags(tags), #[]);
     let new-title = new-title & trim(new-title);
@@ -431,8 +431,8 @@ define method respond-to-post
 
     let previewing? = (button = "Preview");
     if (previewing? | page-has-errors?())
-      // Redisplay the page with errors highlighted.
-      respond-to-get(*edit-page-page*, title: title, previewing?: #t);
+      set-attribute(page-context(), "previewing?", #t);
+      process-template(wiki-dsp);
     else
       let page = save-page(title, content | "", comment, tags);
       redirect-to(page);
@@ -592,16 +592,10 @@ end;
 define tag show-page-content in wiki
     (page :: <wiki-dsp>)
     (content-format :: false-or(<string>))
-  let raw-content
-    = if (get-attribute(page-context(), "content"))
-        get-attribute(page-context(), "content")
-      elseif (*page*)
-        *page*.page-content
-      elseif (wf/*form* & element(wf/*form*, "content", default: #f))
-        wf/*form*["content"];
-      else
-        ""
-      end if;
+  let raw-content = get-attribute(page-context(), "content")
+                    | (*page* & *page*.page-content)
+                    | get-query-value("content")
+                    | "";
   case
     content-format = "xhtml"
       => output("%s", wiki-markup-to-html(raw-content)); // parse-wiki-markup(content);
@@ -630,8 +624,8 @@ define body tag list-page-tags in wiki
         do-body();
       end;
     end for;
-  elseif (wf/*form* & element(wf/*form*, "tags", default: #f))
-    output("%s", escape-xml(wf/*form*["tags"]));
+  elseif (get-query-value("tags"))
+    output("%s", escape-xml(get-query-value("tags")));
   end if;
 end;
 

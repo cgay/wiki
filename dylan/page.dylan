@@ -25,7 +25,7 @@ define class <wiki-page> (<wiki-object>)
   slot page-author :: <wiki-user>,
     required-init-keyword: author:;
 
-  // Tags entered by the author when the page was saved.
+  // Tags (strings) entered by the author when the page was saved.
   slot page-tags :: <sequence>,
     required-init-keyword: tags:;
 
@@ -243,8 +243,7 @@ define method respond-to-get
   let wiki-page = find-or-load-page(percent-decode(title));
   if (wiki-page)
     set-attribute(page-context(), "title", percent-decode(title));
-    set-attribute(page-context(), "page-versions",
-                  reverse(load-revisions(*storage*, wiki-page)));
+    set-attribute(page-context(), "page-versions", TODO--page-versions);
     next-method()
   else
     respond-to-get(*non-existing-page-page*, title: title);
@@ -454,13 +453,6 @@ define method respond-to-get
      #key title :: <string>,
           version1 :: <string>,
           version2 :: false-or(<string>))
-
-// git note: haven't converted this yet because instead of the obvious thing
-// (using git hash codes for revisions) we may want to continue using 
-// integers.  But they would be used as part of refspecs e.g. n revisions
-// before the current rev.  But maybe that's not good because someone could
-// save a new revision and cause the relative refs to be incorrect.
-
   let title = percent-decode(title);
   dynamic-bind (*page* = find-page(title))  // only for <show-page-title/>
     if (*page*)
@@ -548,9 +540,6 @@ define method redirect-to-page-or
     end if;
   end;
 end method redirect-to-page-or;
-
-define constant show-page-authors =
-  curry(redirect-to-page-or, *page-authors-page*);
 
 define constant show-remove-page =
   curry(redirect-to-page-or, *remove-page-page*);
@@ -680,19 +669,6 @@ define body tag list-pages in wiki
   end for;
 end;
 
-define body tag list-page-authors in wiki
-    (page :: <wiki-dsp>, do-body :: <function>)
-    ()
-  if (*page*)
-    // TODO: This is extremely expensive!
-    for (page in load-all-revisions(*page*))
-      dynamic-bind(*user* = page.page-author)
-        do-body();
-      end;
-    end for;
-  end if;
-end;
-
 
 // named methods
 
@@ -703,15 +679,16 @@ end;
 
 define named-method latest-page-version? in wiki
     (page :: <wiki-dsp>)
-  // TODO: (a) check whether this is even needed
-  //       (b) compare against latest git commit hash.
-  *page* & (*page*.page-versions.last = *version*)
+  // TODO: Currently we assume the latest revision of the page is always
+  //       stored in *pages*.
+  *page* & *page* == element(*pages*, *page*.page-title, default: $unfound)
 end;
 
 define named-method page-tags in wiki
     (page :: <wiki-dsp>)
-  // todo -- show tags for the specific page version being displayed!
-  *page* & sort(*page*.page-tags) | #[]
+  iff(*page*,
+      sort(*page*.page-tags, test: \=),
+      #[])
 end;
 
 

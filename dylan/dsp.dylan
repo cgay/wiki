@@ -39,7 +39,6 @@ define variable *page-versions-page* = #f;
 define variable *connections-page* = #f;
 define variable *view-diff-page* = #f;
 define variable *search-page* = #f;
-define variable *page-authors-page* = #f;
 define variable *non-existing-page-page* = #f;
 
 define variable *view-user-page* = #f;

@@ -321,8 +321,6 @@ define function add-wiki-responders
       url-name: "wiki.page.diff");
   add("/page/connections/{title}", *connections-page*,
       url-name: "wiki.page.connections");
-  add("/page/authors/{title}", function-resource(show-page-authors),
-      url-name: "wiki.page.authors");
   add("/page/access/{title}", *edit-access-page*,
       url-name: "wiki.page.access");
 
@@ -374,7 +372,6 @@ define function initialize-pages
   *page-versions-page* := make(<page-versions-page>, source: "list-page-versions.dsp");
   *connections-page* := make(<connections-page>, source: "page-connections.dsp");
   *search-page* := make(<wiki-dsp>, source: "search-page.dsp");
-  *page-authors-page* := make(<wiki-dsp>, source: "page-authors.dsp");
   *non-existing-page-page* := make(<wiki-dsp>, source: "non-existing-page.dsp");
 
   // user pages

@@ -107,18 +107,18 @@ define method rename-group
     (group :: <wiki-group>, new-name :: <string>,
      #key comment :: <string> = "")
  => ()
-  if (group.group-name ~= new-name)
-    if (find-group(new-name))
+  let old-lc-name = as-lowercase(group.group-name);
+  let new-lc-name = as-lowercase(new-name);
+  if (old-lc-name ~= new-lc-name)
+    if (find-group(new-lc-name))
       // todo -- raise more specific error...test...
       error("group %s already exists", new-name);
     end;
     let comment = concatenate("was: ", group.group-name, ". ", comment);
-    // TODO: verify that tables are not thread safe already
     with-lock ($group-lock)
-      let key = as-lowercase(group.group-name);
-      remove-key!(*groups*, key);
+      remove-key!(*groups*, old-lc-name));
       group.group-name := new-name;
-      *groups*[key] := group;
+      *groups*[new-lc-name] := group;
     end;
     store(*storage*, group, authenticated-user(), comment);
   end if;

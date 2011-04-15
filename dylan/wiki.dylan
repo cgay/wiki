@@ -46,6 +46,8 @@ define constant $page-lock :: <lock> = make(<lock>);
 ///
 define class <wiki-object> (<object>)
   constant slot creation-date :: <date> = current-date();
+  // TODO:
+  //constant slot modification-date :: <date> = <same as creation-date>;
 end;
 
 // Prefix for all wiki URLs.  Set to "" for no prefix.

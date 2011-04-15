@@ -1,5 +1,10 @@
 Module: %wiki
 
+
+/// Default number of pages to show on the list-pages page.
+define constant $default-page-count :: <integer> = 25;
+
+
 // Represents a user-editable wiki page revision.  Not to be confused
 // with <wiki-dsp>, which is a DSP maintained in our source code tree.
 //
@@ -74,6 +79,9 @@ define method find-page
   element(*pages*, title, default: #f)
 end;
 
+// In fact we load all pages at startup for now (to simplify searches
+// and iteration over lists of pages) so this probably never loads anything.
+//
 define method find-or-load-page
     (title :: <string>)
   find-page(title)
@@ -89,6 +97,39 @@ define method find-or-load-page
       // ignored
     end;
 end method find-or-load-page;
+
+// The plan is for this to eventually support many more search criteria,
+// such as searching by owner, author, date ranges, etc.
+//
+define method find-pages
+    (#key tags :: <sequence> = #[],
+          order-by :: <function> = title-less?)
+ => (pages :: <sequence>)
+  let pages = sort(with-lock ($page-lock)
+                     value-sequence(*pages*)
+                   end,
+                   test: order-by);
+  if (~empty?(tags))
+    local method page-has-tags? (page :: <wiki-page>)
+            any?(method (tag)
+                   member?(tag, page.page-tags, test: \=)
+                 end,
+                 tags)
+          end;
+    pages := choose(page-has-tags?, pages);
+  end;
+  pages
+end;
+
+define function title-less?
+    (p1 :: <wiki-page>, p2 :: <wiki-page>) => (less? :: <boolean>)
+  p1.page-title < p2.page-title
+end;
+
+define function creation-date-newer?
+    (p1 :: <wiki-page>, p2 :: <wiki-page>) => (less? :: <boolean>)
+  p1.creation-date > p2.creation-date
+end;
 
 
 // todo -- Implement this as a wiki page.
@@ -318,8 +359,8 @@ define method respond-to-get
           end;
     let current-page = get-query-value("page", as: <integer>) | 1;
     let paginator = make(<paginator>,
-                         sequence: map(page-info, find-tagged-pages(#[])),
-                         page-size: 25,
+                         sequence: map(page-info, find-pages()),
+                         page-size: $default-page-count,
                          current-page-number: current-page);
     set-attribute(pc, "wiki-pages", paginator);
     next-method();
@@ -629,20 +670,6 @@ define body tag list-page-tags in wiki
   end if;
 end;
 
-define method more-recently-published?
-    (page1 :: <wiki-page>, page2 :: <wiki-page>)
-  page1.creation-date > page2.creation-date
-end;
-
-/// Find pages with the given tags.
-define method find-tagged-pages
-    (tags :: <sequence>,  // strings
-     #key order-by :: <function> = more-recently-published?)
- => (pages :: <sequence>)
-  sort(find-or-load-pages-with-tags(*storage*, tags),
-       test: order-by)
-end method find-tagged-pages;
-
 // This is only used is main.dsp now, and only for news.
 // May want to make a special one for news instead.
 define body tag list-pages in wiki
@@ -650,13 +677,11 @@ define body tag list-pages in wiki
     (tags :: false-or(<string>),
      order-by :: false-or(<string>),
      use-query-tags :: <boolean>)
-   let tagged = get-query-value("tagged");
-   tags := if (use-query-tags & instance?(tagged, <string>))
-             parse-tags(tagged);
-           elseif (tags)
-             parse-tags(tags);
-           end if;
-  for (page in find-tagged-pages(tags | #[]))
+  let tagged = get-query-value("tagged");
+  tags := parse-tags(iff(use-query-tags & instance?(tagged, <string>),
+                         parse-tags(tagged),
+                         iff(tags, parse-tags(tags), #[])));
+  for (page in find-pages(tags: tags, order-by: creation-date-newer?))
     dynamic-bind(*page* = page)
       do-body();
     end;

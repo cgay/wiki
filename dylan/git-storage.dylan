@@ -158,6 +158,31 @@ define method load
        access-controls: acls)
 end method load;
 
+// This may be crazy in the long run, but I think it will scale well enough
+// until we get up to, say, 10k pages?  We shall see.  It simplifies the
+// code a lot to load all the pages up front.
+define method load-all
+    (storage :: <storage>, class == <wiki-page>)
+ => (pages :: <sequence>)
+  log-info("Loading all pages from storage (%s)...",
+           as(<string>, storage.git-repository-root));
+  let pages :: <stretchy-vector> = make(<stretchy-vector>);
+  local method load-page (page-directory :: <directory-locator>)
+          let title = git-decode-title(locator-name(page-directory));
+          block ()
+            add!(pages, load(storage, <wiki-page>, title));
+          exception (ex :: <git-storage-error>)
+            log-error("Unable to load page %=: %s", title, ex);
+          end;
+        end;
+  do-object-files(subdirectory-locator(*pages-directory*, $default-sandbox-name),
+                  <wiki-page>,
+                  load-page);
+  log-info("Loaded %d pages.", pages.size);
+  pages
+end method load-all;
+
+
 // TODO: this should cache the tags and maintain a map of them in
 //       memory, to prevent having to scan the file system each time.
 //       (Though really, a full text index would be nice.)
@@ -176,8 +201,6 @@ define method find-or-load-pages-with-tags
           let page-tags = iff(page,
                               page.page-tags,
                               load-page-tags(page-directory));
-          log-debug("LPWT: title = %=, page = %=, page-tags = %=, tags = %=",
-                    title, page, page-tags, tags);
           block (return)
             for (tag in tags)
               if (member?(tag, page-tags, test: \=))

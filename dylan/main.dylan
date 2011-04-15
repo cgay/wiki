@@ -36,6 +36,10 @@ define sideways method process-config-element
   for (group in load-all(*storage*, <wiki-group>))
     *groups*[as-lowercase(group.group-name)] := group;
   end;
+  // TODO: This won't scale.
+  for (page in load-all(*storage*, <wiki-page>))
+    *pages*[page.page-title] := page;
+  end;
 
   local method child-node-named (name)
           block (return)

@@ -681,9 +681,9 @@ define body tag list-pages in wiki
      order-by :: false-or(<string>),
      use-query-tags :: <boolean>)
   let tagged = get-query-value("tagged");
-  tags := parse-tags(iff(use-query-tags & instance?(tagged, <string>),
-                         parse-tags(tagged),
-                         iff(tags, parse-tags(tags), #[])));
+  let tags = iff(use-query-tags & instance?(tagged, <string>),
+                 parse-tags(tagged),
+                 iff(tags, parse-tags(tags), #[]));
   for (page in find-pages(tags: tags, order-by: creation-date-newer?))
     dynamic-bind(*page* = page)
       do-body();

@@ -217,23 +217,18 @@ end;
 */
 
 define method rename-page
-    (title :: <string>, new-title :: <string>,
-     #key comment :: <string> = "")
- => ()
-  let page = find-or-load-page(title);
-  if (page)
-    rename-page(page, new-title, comment: comment)
-  end if;
-end;
-
-define method rename-page
     (page :: <wiki-page>, new-title :: <string>,
-     #key comment :: <string> = "")
+     #key comment :: false-or(<string>))
  => ()
   let author = authenticated-user();
-  rename(*storage*, page, new-title, author, comment);
-  page.page-title := new-title;
-end;
+  let old-title = page.page-title;
+  rename(*storage*, page, new-title, author,
+         comment | format-to-string("Renamed from %= to %=", old-title, new-title));
+  with-lock ($page-lock)
+    remove-key!(*pages*, old-title);
+    *pages*[new-title] := page;
+  end;
+end method rename-page;
 
 
 define generic find-backlinks
@@ -423,6 +418,7 @@ define method respond-to-get
     set-attribute(pc, "previewing?", #f);
     dynamic-bind (*page* = find-or-load-page(title))
       if (*page*)
+        set-attribute(pc, "original-title", *page*.page-title);
         set-attribute(pc, "content", *page*.page-content);
         set-attribute(pc, "owner", *page*.page-owner);
         set-attribute(pc, "tags", unparse-tags(*page*.page-tags));
@@ -437,6 +433,10 @@ define method respond-to-get
   end;
 end method respond-to-get;
 
+// Note that when the title is changed and the page is being previewed
+// we have to keep track of the old title.  The POST is always to the
+// existing title, and when it's not a preview, the rename is done.
+//
 define method respond-to-post
     (wiki-dsp :: <edit-page-page>, #key title :: <string>)
   let title = percent-decode(title);
@@ -444,6 +444,7 @@ define method respond-to-post
   with-query-values (title as new-title, content, comment, tags, button)
     let tags = iff(tags, parse-tags(tags), #[]);
     let new-title = new-title & trim(new-title);
+    let previewing? = (button = "Preview");
 
     // Handle page renaming.
     // TODO: potential race conditions here.  Should really lock the old and
@@ -452,8 +453,10 @@ define method respond-to-post
       if (find-or-load-page(new-title))
         add-field-error("title", "A page with this title already exists.");
       else
-        title := new-title;
-        page & rename-page(page, new-title, comment: comment);
+        if (page & ~previewing?)
+          title := new-title;
+          rename-page(page, new-title, comment: comment);
+        end;
       end;
     end;
 
@@ -470,9 +473,9 @@ define method respond-to-post
                       iff(reserved-tags.size = 1, "is", "are"));
     end;
 
-    let previewing? = (button = "Preview");
     if (previewing? | page-has-errors?())
       set-attribute(page-context(), "previewing?", #t);
+      set-attribute(page-context(), "original-title", page.page-title);
       process-template(wiki-dsp);
     else
       let page = save-page(title, content | "", comment, tags);

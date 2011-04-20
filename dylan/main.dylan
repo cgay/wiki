@@ -29,18 +29,6 @@ define sideways method process-config-element
                     executable: as(<file-locator>, git-exe));
   initialize-storage-for-reads(*storage*);
 
-  // Not serving yet, so no lock needed.
-  for (user in load-all(*storage*, <wiki-user>))
-    *users*[as-lowercase(user.user-name)] := user;
-  end;
-  for (group in load-all(*storage*, <wiki-group>))
-    *groups*[as-lowercase(group.group-name)] := group;
-  end;
-  // TODO: This won't scale.
-  for (page in load-all(*storage*, <wiki-page>))
-    *pages*[page.page-title] := page;
-  end;
-
   local method child-node-named (name)
           block (return)
             for (child in xml/node-children(node))
@@ -62,6 +50,7 @@ define sideways method process-config-element
     store(*storage*, admin-user, admin-user, "Change due to config file edit");
   end;
   *admin-user* := admin-user;
+  *users*[as-lowercase(admin-user.user-name)] := admin-user;
 
   *site-name* := get-attr(node, #"site-name") | *site-name*;
   log-info("Site name: %s", *site-name*);
@@ -90,6 +79,7 @@ define sideways method process-config-element
   else
     error("A <mail> element must be specified in the config file.");
   end;
+
 end method process-config-element;
 
 define method process-administrator-configuration
@@ -360,7 +350,22 @@ define function initialize-wiki
     *template-directory* := subdirectory-locator(*static-directory*, "dsp");
   end;
   add-wiki-responders(server);
+  preload-wiki-data();
 end function initialize-wiki;
+
+define function preload-wiki-data ()
+  // Load all wiki data.  Not serving yet, so no lock needed.
+  for (user in load-all(*storage*, <wiki-user>))
+    *users*[as-lowercase(user.user-name)] := user;
+  end;
+  for (group in load-all(*storage*, <wiki-group>))
+    *groups*[as-lowercase(group.group-name)] := group;
+  end;
+  // TODO: This won't scale.
+  for (page in load-all(*storage*, <wiki-page>))
+    *pages*[page.page-title] := page;
+  end;
+end function preload-wiki-data;
 
 // This is pretty horrifying, but the plan is to eventually make it all
 // disappear behind a somewhat less horrifying macro like "define site".

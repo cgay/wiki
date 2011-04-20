@@ -128,6 +128,8 @@ define function logout ()
   redirect-url & redirect-to(redirect-url);
 end;
 
+// TODO: this should signal an error, which we can handle in one place
+//       and redirect to a login page.
 define function check-authorization
     () => (user :: false-or(<wiki-user>))
   let authorization = get-header(current-request(), "Authorization", parsed: #t);

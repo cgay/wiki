@@ -18,6 +18,10 @@ Author: Carl Gay
 
 // TODO: error handling.  Think "disk error".
 
+// TODO: Fix run-application to accept command args as a sequence of strings.
+//       (At which point we can stop escaping the "s in command arguments, and
+//       various other potential escaping bugs will die.)
+
 define constant <revision> = type-union(<string>, singleton(#"newest"));
 
 define constant $user-prefix-size :: <integer> = 1;
@@ -221,17 +225,11 @@ define method store
     (storage :: <storage>, page :: <wiki-page>, author :: <wiki-user>,
      comment :: <string>)
  => (revision :: <string>)
-  let title :: <string> = page.page-title;
-  log-info("Storing page %=", title);
-
-  let prefix = title-prefix(title);
-  let etitle = git-encode-title(title);
+  let (page-path, prefix, safe-title) = git-page-path(page.page-title);
   let prefix-dir = subdirectory-locator(*pages-directory*,
                                         $default-sandbox-name,
                                         prefix);
-  let page-dir = subdirectory-locator(prefix-dir, etitle);
-  let page-path = sformat("pages/%s/%s/%s", $default-sandbox-name, prefix, etitle);
-
+  let page-dir = subdirectory-locator(prefix-dir, safe-title);
   ensure-directories-exist(prefix-dir);
   ensure-directories-exist(page-dir);
 
@@ -244,7 +242,9 @@ define method store
                    page-path, $content,
                    page-path, $tags,
                    page-path, $acls));
-  page.page-revision := git-commit(storage, page-path, author, comment)
+  let revision = git-commit(storage, page-path, author, comment);
+  log-info("Stored page %= revision %s", page.page-title, revision);
+  page.page-revision := revision
 end method store;
 
 define method delete
@@ -255,10 +255,30 @@ define method delete
 end;
 
 define method rename
-    (storage :: <storage>, page :: <wiki-page>, new-name :: <string>,
+    (storage :: <storage>, page :: <wiki-page>, new-title :: <string>,
      author :: <wiki-user>, comment :: <string>)
- => ()
-  TODO--rename-page;
+ => (revision :: <string>)
+  let old-page-path = git-page-path(page.page-title);
+  let (new-page-path, prefix, safe-title) = git-page-path(new-title);
+  let new-dir = subdirectory-locator(*pages-directory*, $default-sandbox-name,
+                                     prefix);
+  ensure-directories-exist(new-dir);
+  call-git(storage, sformat("mv \"%s\" \"%s\"", old-page-path, new-page-path));
+  let revision = git-commit(storage, list(old-page-path, new-page-path),
+                            author, comment);
+  log-info("Renamed page %= to %= @%s", page.page-title, new-title, revision);
+  page.page-title := new-title;
+  page.page-revision := revision
+end method rename;
+  
+define function git-page-path
+    (title :: <string>)
+ => (path :: <string>, prefix :: <string>, safe-title :: <string>)
+  let safe-title = git-encode-title(title);
+  let prefix = title-prefix(safe-title);
+  values(sformat("pages/%s/%s/%s", $default-sandbox-name, prefix, safe-title),
+         prefix,
+         safe-title)
 end;
 
 /// Encode the title to make it safe for use as a directory name.
@@ -380,7 +400,7 @@ end method delete;
 define method rename
     (storage :: <storage>, user :: <wiki-user>, new-name :: <string>,
      author :: <wiki-user>, comment :: <string>)
- => ()
+ => (revision :: <string>)
   TODO--rename-user;
 end method rename;
 
@@ -493,7 +513,7 @@ end method delete;
 define method rename
     (storage :: <storage>, group :: <wiki-group>, new-name :: <string>,
      author :: <wiki-user>, comment :: <string>)
- => ()
+ => (revision :: <string>)
   TODO--rename-group;
 end method rename;
 
@@ -696,37 +716,42 @@ end function do-object-files;
 /// Commit something to the main (non-user) git repository.  All commits are
 /// done with explicit paths so that adds aren't necessary.
 /// Arguments:
-///   path - pathname relative to the repository root.  These can always
-///       use unix pathname format.  e.g., a/b/c
+///   paths - a string or sequence of strings, each of which is a pathname
+///       relative to the repository root.
 define function git-commit
-    (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
+    (storage :: <git-storage>, paths :: <sequence>, author :: <wiki-user>,
      comment :: <string>)
  => (revision :: <string>)
-  %git-commit(storage, path, author, comment, storage.git-repository-root)
+  %git-commit(storage, paths, author, comment, storage.git-repository-root)
 end;
 
 /// The same as git-commit, but for commits to the user repository.
 define function git-user-commit
-    (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
+    (storage :: <git-storage>, paths :: <sequence>, author :: <wiki-user>,
      comment :: <string>)
  => (revision :: <string>)
-  %git-commit(storage, path, author, comment, storage.git-user-repository-root)
+  %git-commit(storage, paths, author, comment, storage.git-user-repository-root)
 end;
  
 define function %git-commit
-    (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
+    (storage :: <git-storage>, paths :: <sequence>, author :: <wiki-user>,
      comment :: <string>, repo-root :: <directory-locator>)
  => (revision :: <string>)
+  if (instance?(paths, <string>))
+    paths := list(paths);
+  end;
   // TODO: Don't want to put the real user email address in the author field,
   //       so probably need to use a (configurable?) fake address of some sort.
   //       Do I need to maintain the git authorsfile also?
   let (stdout, stderr, exit-code)
     = call-git(storage,
-               sformat("commit --author \"%s <%s@opendylan.org>\" -m \"%s\" \"%s\"",
+               sformat("commit --author \"%s <%s@opendylan.org>\" -m \"%s\" %s",
                        author.user-real-name,
                        author.user-name,
                        iff(trim(comment) = "", "-", comment),
-                       path),
+                       join(map(method (p) concatenate("\"", p, "\"") end,
+                                paths),
+                            " ")),
                working-directory: repo-root,
                debug?: #t);
   // The stdout from git commit looks like this:

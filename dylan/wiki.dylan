@@ -137,7 +137,7 @@ define generic delete
 define generic rename
     (storage :: <storage>, obj :: <wiki-object>, new-name :: <string>,
      author :: <wiki-user>, comment :: <string>)
- => ();
+ => (revision :: <string>);
 
 /// This is what the above methods should signal if they can't fullfill
 /// their contract.

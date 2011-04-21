@@ -1,7 +1,9 @@
 Fix before going live
 ---------------------
 
-Anything that is a regression compared to the original wiki.
+Anything that prevents reading wiki pages.  Everything else is now
+optional, since we've had to disable editing on the old wiki due to
+spam.
 
 * Convert the content in www.opendylan.org to wiki pages and make
   them only editable by the dylan-hackers group.

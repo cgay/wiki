@@ -305,8 +305,7 @@ define function add-wiki-responders
   add("/page/edit/{title}/{version?}",
       make(<edit-page-page>, source: "edit-page.dsp"),
       url-name: "wiki.page.edit");
-  // was show-remove-page and do-remove-page
-  add("/page/remove/{title}/{version}", *remove-page-page*,
+  add("/page/remove/{title}/{version?}", *remove-page-page*,
       url-name: "wiki.page.remove");
   add("/page/versions/{title}", *page-versions-page*,
       url-name: "wiki.page.versions");
@@ -376,7 +375,7 @@ define function initialize-pages
   *view-diff-page* := make(<view-diff-page>, source: "view-diff.dsp");
   *edit-page-page* := make(<edit-page-page>, source: "edit-page.dsp");
   *view-page-page* := make(<wiki-dsp>, source: "view-page.dsp");
-  *remove-page-page* := make(<wiki-dsp>, source: "remove-page.dsp");
+  *remove-page-page* := make(<remove-page-page>, source: "remove-page.dsp");
   *page-versions-page* := make(<page-versions-page>, source: "list-page-versions.dsp");
   *connections-page* := make(<connections-page>, source: "page-connections.dsp");
   *search-page* := make(<wiki-dsp>, source: "search-page.dsp");

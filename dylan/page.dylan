@@ -52,7 +52,7 @@ define named-method page? in wiki
   *page* ~= #f
 end;
 
-
+
 //// URLs
 
 define method permanent-link
@@ -269,8 +269,8 @@ define function redirect-content?
 end;
 
 
-
-//// List Page Versions
+
+//// List Versions
 
 define class <page-versions-page> (<wiki-dsp>)
 end;
@@ -338,6 +338,9 @@ define body tag list-page-backlinks in wiki
 end;
 
 
+
+//// List Pages
+
 define class <list-pages-page> (<wiki-dsp>) end;
 
 define method respond-to-get
@@ -362,12 +365,34 @@ define method respond-to-get
   end;
 end method respond-to-get;
 
-define method do-remove-page (#key title)
-  let page = find-or-load-page(percent-decode(title));
-  delete(*storage*, page, authenticated-user(), get-query-value("comment") | "");
-  redirect-to(page);
+
+//// Remove page
+
+define class <remove-page-page> (<wiki-dsp>)
 end;
 
+define method respond-to-get
+    (dsp :: <remove-page-page>, #key title :: <string>)
+  dynamic-bind (*page* = find-or-load-page(title))
+    process-template(dsp);
+  end;
+end;
+
+define method respond-to-post
+    (dsp :: <remove-page-page>, #key title :: <string>)
+  let page = find-or-load-page(percent-decode(title));
+  if (page)
+    delete(*storage*, page, authenticated-user(),
+           get-query-value("comment")
+           | format-to-string("Removed page %=", title));
+    add-page-note("Page %= has been deleted.", title);
+    redirect-to(wiki-url("/") /* generate-url("wiki.home") */);
+  else
+    respond-to-get(*non-existing-page-page*, title: title);
+  end;
+end;
+
+
 // Provide backward compatibility with old wiki URLs
 // /wiki/view.dsp?title=t&version=v
 // 
@@ -405,6 +430,10 @@ define method show-page-responder
                    title: title);
   end;
 end method show-page-responder;
+
+
+
+//// Edit Page
 
 define class <edit-page-page> (<wiki-dsp>)
 end;
@@ -483,6 +512,9 @@ define method respond-to-post
     end;
   end;
 end method respond-to-post;
+
+
+//// View Diff
 
 define class <view-diff-page> (<wiki-dsp>) end;
 
@@ -585,11 +617,9 @@ define method redirect-to-page-or
   end;
 end method redirect-to-page-or;
 
-define constant show-remove-page =
-  curry(redirect-to-page-or, *remove-page-page*);
 
-
-// tags
+
+//// Tags
 
 define tag show-page-permanent-link in wiki
     (page :: <wiki-dsp>)
@@ -713,46 +743,4 @@ define named-method page-tags in wiki
       #[])
 end;
 
-
-//// Search
-
-/***** We'll use Google or Yahoo custom search, at least for a while
-
-define class <search-page> (<wiki-dsp>)
-end;
-
-// Called when the search form is submitted.
-//
-define method respond-to-post
-    (page :: <search-page>)
-  with-query-values(query, search-type, search as search?, go as go?, redirect)
-    log-debug("query = %s, search-type = %s, search? = %s, go? = %s, redirect = %s",
-              query, search-type, search?, go?, redirect);
-    let query = trim(query);
-    if (empty?(query))
-      note-form-error("Please enter a search term.", field: "search-text");
-      process-template(page);
-    elseif (go?)
-      select (as(<symbol>, search-type))
-        #"page" => redirect-to(page-permanent-link(query));
-        #"user" => redirect-to(user-permanent-link(query));
-        #"group" => redirect-to(group-permanent-link(query));
-        //#"file" => redirect-to(file-permanent-link(query));
-        otherwise =>
-          // go to anything with the exact name given
-          let thing = find-user(query) | find-page(query)
-                        | find-group(query) /* | find-file(query) */ ;
-          if (thing)
-            redirect-to(permanent-link(thing));
-          else
-            note-form-error(format-to-string("%s not found", query),
-                            field: "search-text");
-            process-template(page);
-          end if;
-      end select;
-    end if;
-  end;
-end method respond-to-post;
-
-*/
 

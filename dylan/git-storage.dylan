@@ -264,8 +264,8 @@ define method rename
                                      prefix);
   ensure-directories-exist(new-dir);
   call-git(storage, sformat("mv \"%s\" \"%s\"", old-page-path, new-page-path));
-  let revision = git-commit(storage, list(old-page-path, new-page-path),
-                            author, comment);
+  let revision = git-commit(storage, old-page-path, author, comment,
+                            extra-path: new-page-path);
   log-info("Renamed page %= to %= @%s", page.page-title, new-title, revision);
   page.page-title := new-title;
   page.page-revision := revision
@@ -713,63 +713,80 @@ define function do-object-files
   do-directory(do-prefix-dir, root);
 end function do-object-files;
 
-/// Commit something to the main (non-user) git repository.  All commits are
-/// done with explicit paths so that adds aren't necessary.
-/// Arguments:
-///   paths - a string or sequence of strings, each of which is a pathname
-///       relative to the repository root.
 define function git-commit
     (storage :: <git-storage>, paths :: <sequence>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>,
+     #key extra-path :: false-or(<string>))
  => (revision :: <string>)
-  %git-commit(storage, paths, author, comment, storage.git-repository-root)
+  %git-commit(storage, paths, author, comment, storage.git-repository-root,
+              extra-path)
 end;
 
-/// The same as git-commit, but for commits to the user repository.
 define function git-user-commit
     (storage :: <git-storage>, paths :: <sequence>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>,
+     #key extra-path :: false-or(<string>))
  => (revision :: <string>)
-  %git-commit(storage, paths, author, comment, storage.git-user-repository-root)
+  %git-commit(storage, paths, author, comment, storage.git-user-repository-root,
+              extra-path)
 end;
  
+/// Commit files.  All commits are done with explicit paths so that
+/// adds aren't necessary.
+/// Arguments:
+///   path - The path to commit, relative to repo-root.
+///   repo-root - The root directory of the repository.  
+///   extra-path - The "to" path for rename operations.  The revision hash
+///       returned is for this path.
+///
 define function %git-commit
-    (storage :: <git-storage>, paths :: <sequence>, author :: <wiki-user>,
-     comment :: <string>, repo-root :: <directory-locator>)
+    (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
+     comment :: <string>, repo-root :: <directory-locator>,
+     extra-path :: false-or(<string>))
  => (revision :: <string>)
-  if (instance?(paths, <string>))
-    paths := list(paths);
-  end;
   // TODO: Don't want to put the real user email address in the author field,
   //       so probably need to use a (configurable?) fake address of some sort.
   //       Do I need to maintain the git authorsfile also?
+  let path-args = iff(extra-path,
+                      sformat("\"%s\" \"%s\"", path, extra-path),
+                      sformat("\"%s\"", path));
   let (stdout, stderr, exit-code)
     = call-git(storage,
                sformat("commit --author \"%s <%s@opendylan.org>\" -m \"%s\" %s",
                        author.user-real-name,
                        author.user-name,
                        iff(trim(comment) = "", "-", comment),
-                       join(map(method (p) concatenate("\"", p, "\"") end,
-                                paths),
-                            " ")),
+                       path-args),
                working-directory: repo-root,
-               debug?: #t);
-  // The stdout from git commit looks like this:
-  //     [git-backend 804b716] ...commit comment...
-  //     1 files changed, 64 insertions(+), 24 deletions(-)
-  let open-bracket = find-key(stdout, curry(\=, '['));
-  let close-bracket = find-key(stdout, curry(\=, ']'));
-  if (~open-bracket | ~close-bracket)
-    git-error("Unexpected output from the 'git commit' command: %=", stdout);
-  else
-    let parts = split(slice(stdout, open-bracket + 1, close-bracket),
-                      $whitespace-regex);
-    let short-hash = elt(parts, -1);
-    // Unfortunately we have to run another command to get the full hash...
+               error?: #f);
+  if (subsequence-position(stdout, "nothing to commit"))
+    // No changes were made.  Return the head revision.
     trim(call-git(storage,
-                  sformat("rev-list --max-count 1 %s", short-hash),
-                  working-directory: repo-root,
-                  debug?: #t))
+                  sformat("rev-list --max-count 1 HEAD -- %s", extra-path | path),
+                  working-directory: repo-root))
+  elseif (exit-code ~= 0)
+    log-error("Commit failed:\nexit-code: %s\nstdout: %s\nstderr: %s",
+              exit-code, stdout, stderr);
+    git-error("Commit failed for path %=.\nexit-code: %s\nstdout: %s\nstderr: %s",
+              path, exit-code, stdout, stderr);
+  else
+    // The stdout from git commit looks like this:
+    //     [git-backend 804b716] ...commit comment...
+    //     1 files changed, 64 insertions(+), 24 deletions(-)
+    let open-bracket = find-key(stdout, curry(\=, '['));
+    let close-bracket = find-key(stdout, curry(\=, ']'));
+    if (~open-bracket | ~close-bracket)
+      git-error("Unexpected output from the 'git commit' command: %=", stdout);
+    else
+      let parts = split(slice(stdout, open-bracket + 1, close-bracket),
+                        $whitespace-regex);
+      let short-hash = elt(parts, -1);
+      // Unfortunately we have to run another command to get the full hash...
+      trim(call-git(storage,
+                    sformat("rev-list --max-count 1 %s -- \"%s\"",
+                            short-hash, extra-path | path),
+                    working-directory: repo-root))
+    end
   end
 end function %git-commit;
 

@@ -385,6 +385,9 @@ define method respond-to-post
     delete(*storage*, page, authenticated-user(),
            get-query-value("comment")
            | format-to-string("Removed page %=", title));
+    with-lock ($page-lock)
+      remove-key!(*pages*, title);
+    end;
     add-page-note("Page %= has been deleted.", title);
     redirect-to(wiki-url("/") /* generate-url("wiki.home") */);
   else

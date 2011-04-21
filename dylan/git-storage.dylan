@@ -251,8 +251,16 @@ define method delete
     (storage :: <storage>, page :: <wiki-page>, author :: <wiki-user>,
      comment :: <string>)
  => ()
-  TODO--delete-page;
-end;
+  let (page-path, prefix, safe-title) = git-page-path(page.page-title);
+  let prefix-dir = subdirectory-locator(*pages-directory*,
+                                        $default-sandbox-name,
+                                        prefix);
+  let page-dir = subdirectory-locator(prefix-dir, safe-title);
+  if (file-exists?(page-dir))
+    call-git(storage, sformat("rm -r \"%s\"", page-path));
+  end;
+  git-commit(storage, page-path, author, comment);
+end method delete;
 
 define method rename
     (storage :: <storage>, page :: <wiki-page>, new-title :: <string>,
@@ -714,20 +722,20 @@ define function do-object-files
 end function do-object-files;
 
 define function git-commit
-    (storage :: <git-storage>, paths :: <sequence>, author :: <wiki-user>,
+    (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
      comment :: <string>,
      #key extra-path :: false-or(<string>))
  => (revision :: <string>)
-  %git-commit(storage, paths, author, comment, storage.git-repository-root,
+  %git-commit(storage, path, author, comment, storage.git-repository-root,
               extra-path)
 end;
 
 define function git-user-commit
-    (storage :: <git-storage>, paths :: <sequence>, author :: <wiki-user>,
+    (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
      comment :: <string>,
      #key extra-path :: false-or(<string>))
  => (revision :: <string>)
-  %git-commit(storage, paths, author, comment, storage.git-user-repository-root,
+  %git-commit(storage, path, author, comment, storage.git-user-repository-root,
               extra-path)
 end;
  

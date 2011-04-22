@@ -179,9 +179,11 @@ end;
 define method respond-to-get
     (page :: <list-groups-page>, #key)
   local method group-info (group)
+          let len = group.group-members.size;
           make-table(<string-table>,
                      "name" => group.group-name,
-                     "count" => integer-to-string(group.group-members.size),
+                     "count" => integer-to-string(len),
+                     "s" => iff(len = 1, "", "s"),
                      "description" => quote-html(group.group-description))
         end;
   set-attribute(page-context(), "all-groups",
@@ -312,8 +314,8 @@ end method respond-to-post;
 
 //// Edit Group Members
 
-// todo -- eventually it should be possible to edit the group name, owner,
-// and members all in one page.
+// TODO: It should be possible to edit the group name, owner,
+//       and members all in one page.
 
 define class <edit-group-members-page> (<edit-group-page>)
 end;

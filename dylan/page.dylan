@@ -152,10 +152,15 @@ define method save-page
                   author: user,
                   owner: user,
                   access-controls: $default-access-controls);
+  let action = "create";
   with-lock ($page-lock)
+    if (key-exists?(*pages*, title))
+      action := "edit";
+    end;
     *pages*[title] := page;
   end;
-  page.page-revision := store(*storage*, page, page.page-author, comment);
+  let meta-data = sformat("action=%s", action);
+  page.page-revision := store(*storage*, page, page.page-author, comment, meta-data);
 /*
   TODO: 
   block ()
@@ -222,12 +227,15 @@ define method rename-page
  => ()
   let author = authenticated-user();
   let old-title = page.page-title;
-  rename(*storage*, page, new-title, author,
-         comment | format-to-string("Renamed from %= to %=", old-title, new-title));
+  let comment = comment | format-to-string("Renamed from %= to %=",
+                                           old-title, new-title);
+  let revision = rename(*storage*, page, new-title, author, comment);
   with-lock ($page-lock)
     remove-key!(*pages*, old-title);
     *pages*[new-title] := page;
   end;
+  page.page-title := new-title;
+  page.page-revision := revision;
 end method rename-page;
 
 

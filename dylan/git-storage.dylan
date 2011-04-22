@@ -1,5 +1,5 @@
 Module: %wiki
-Synopsis: Implement the storage protocol with a git back-end
+Synopsis: Implements the storage protocol with a git back-end
 Author: Carl Gay
 
 
@@ -223,7 +223,7 @@ end method find-or-load-pages-with-tags;
 
 define method store
     (storage :: <storage>, page :: <wiki-page>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>, meta-data :: <string>)
  => (revision :: <string>)
   let (page-path, prefix, safe-title) = git-page-path(page.page-title);
   let prefix-dir = subdirectory-locator(*pages-directory*,
@@ -242,7 +242,7 @@ define method store
                    page-path, $content,
                    page-path, $tags,
                    page-path, $acls));
-  let revision = git-commit(storage, page-path, author, comment);
+  let revision = git-commit(storage, page-path, author, comment, meta-data);
   log-info("Stored page %= revision %s", page.page-title, revision);
   page.page-revision := revision
 end method store;
@@ -259,7 +259,7 @@ define method delete
   if (file-exists?(page-dir))
     call-git(storage, sformat("rm -r \"%s\"", page-path));
   end;
-  git-commit(storage, page-path, author, comment);
+  git-commit(storage, page-path, author, comment, "action=delete");
 end method delete;
 
 define method rename
@@ -273,10 +273,10 @@ define method rename
   ensure-directories-exist(new-dir);
   call-git(storage, sformat("mv \"%s\" \"%s\"", old-page-path, new-page-path));
   let revision = git-commit(storage, old-page-path, author, comment,
+                            "action=rename",
                             extra-path: new-page-path);
   log-info("Renamed page %= to %= @%s", page.page-title, new-title, revision);
-  page.page-title := new-title;
-  page.page-revision := revision
+  revision
 end method rename;
   
 define function git-page-path
@@ -370,7 +370,7 @@ end function git-parse-user;
 
 define method store
     (storage :: <storage>, user :: <wiki-user>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>, meta-data :: <string>)
  => (revision :: <string>)
   let name :: <string> = user.user-name;
   log-info("Storing user %=", name);
@@ -391,7 +391,7 @@ define method store
   let user-path = git-user-path(name);
   call-git(storage, sformat("add \"%s\"", user-path),
            working-directory: storage.git-user-repository-root);
-  git-user-commit(storage, user-path, author, comment)
+  git-user-commit(storage, user-path, author, comment, meta-data)
 end method store;
 
 define method delete
@@ -409,7 +409,16 @@ define method rename
     (storage :: <storage>, user :: <wiki-user>, new-name :: <string>,
      author :: <wiki-user>, comment :: <string>)
  => (revision :: <string>)
-  TODO--rename-user;
+  let old-user-path = git-user-path(user.user-name);
+  let new-user-path = git-user-path(new-name);
+
+  ensure-directories-exist(git-user-storage-file(storage, new-name));
+
+  call-git(storage, sformat("mv \"%s\" \"%s\"", old-user-path, new-user-path));
+  let revision = git-user-commit(storage, old-user-path, author, comment,
+                                 "action=rename",
+                                 extra-path: new-user-path);
+  log-info("Renamed user %= to %= @%s", user.user-name, new-name, revision);
 end method rename;
 
 define function git-user-storage-file
@@ -486,7 +495,7 @@ end function git-parse-group;
 
 define method store
     (storage :: <storage>, group :: <wiki-group>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>, meta-data :: <string>)
  => (revision :: <string>)
   let name :: <string> = group.group-name;
   log-info("Storing group %=", name);
@@ -504,7 +513,7 @@ define method store
 
   let group-path = git-group-path(name);
   call-git(storage, sformat("add \"%s\"", group-path));
-  git-commit(storage, group-path, author, comment)
+  git-commit(storage, group-path, author, comment, meta-data)
 end method store;
 
 define method delete
@@ -723,19 +732,21 @@ end function do-object-files;
 
 define function git-commit
     (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
-     comment :: <string>,
+     comment :: <string>, meta-data :: <string>,
      #key extra-path :: false-or(<string>))
  => (revision :: <string>)
-  %git-commit(storage, path, author, comment, storage.git-repository-root,
+  %git-commit(storage, path, author, comment, meta-data,
+              storage.git-repository-root,
               extra-path)
 end;
 
 define function git-user-commit
     (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
-     comment :: <string>,
+     comment :: <string>, meta-data :: <string>,
      #key extra-path :: false-or(<string>))
  => (revision :: <string>)
-  %git-commit(storage, path, author, comment, storage.git-user-repository-root,
+  %git-commit(storage, path, author, comment, meta-data,
+              storage.git-user-repository-root,
               extra-path)
 end;
  
@@ -749,7 +760,7 @@ end;
 ///
 define function %git-commit
     (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
-     comment :: <string>, repo-root :: <directory-locator>,
+     comment :: <string>, meta-data :: <string>, repo-root :: <directory-locator>,
      extra-path :: false-or(<string>))
  => (revision :: <string>)
   // TODO: Don't want to put the real user email address in the author field,
@@ -758,12 +769,14 @@ define function %git-commit
   let path-args = iff(extra-path,
                       sformat("\"%s\" \"%s\"", path, extra-path),
                       sformat("\"%s\"", path));
+
+  let comment = trim(comment);
   let (stdout, stderr, exit-code)
     = call-git(storage,
                sformat("commit --author \"%s <%s@opendylan.org>\" -m \"%s\" %s",
                        author.user-real-name,
                        author.user-name,
-                       iff(trim(comment) = "", "-", comment),
+                       iff(empty?(comment), "-", comment),
                        path-args),
                working-directory: repo-root,
                error?: #f);
@@ -790,10 +803,14 @@ define function %git-commit
                         $whitespace-regex);
       let short-hash = elt(parts, -1);
       // Unfortunately we have to run another command to get the full hash...
-      trim(call-git(storage,
-                    sformat("rev-list --max-count 1 %s -- \"%s\"",
-                            short-hash, extra-path | path),
-                    working-directory: repo-root))
+      let hash = trim(call-git(storage,
+                               sformat("rev-list --max-count 1 %s -- \"%s\"",
+                                       short-hash, extra-path | path),
+                               working-directory: repo-root));
+      if (~empty?(meta-data))
+        call-git(storage, sformat("notes add -m \"%s\" %s", meta-data, hash));
+      end;
+      hash
     end
   end
 end function %git-commit;

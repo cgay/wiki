@@ -47,7 +47,8 @@ define sideways method process-config-element
   // TODO: COMMENTED OUT TEMPORARILY DUE TO H:\ BEING UNAVAILABLE
   //initialize-storage-for-writes(*storage*, admin-user);
   if (changed?)
-    store(*storage*, admin-user, admin-user, "Change due to config file edit");
+    store(*storage*, admin-user, admin-user, "Change due to config file edit",
+          "action=edit");
   end;
   *admin-user* := admin-user;
   *users*[as-lowercase(admin-user.user-name)] := admin-user;
@@ -193,7 +194,7 @@ define function restore-from-text-files
                           email: email,
                           administrator?: #f,
                           activated?: #t);
-          store(*storage*, user, *admin-user*, "New user");
+          store(*storage*, user, *admin-user*, "New user", "action=create");
           inc!(user-count);
         end;
         assert(empty?(read-line(stream)));
@@ -215,12 +216,7 @@ define function restore-from-text-files
     with-open-file(stream = page-locator(page-num, rev-num, "props"))
       let title = parse-line(stream);
       let author = find-user(parse-line(stream)) | administrator;
-      // as-iso8601-string and make(<date>, iso8601-string ...) are not inverses??
-      let timestamp = make(<date>,
-                           iso8601-string: choose(method(x)
-                                                    ~member?(x, "-:")
-                                                  end,
-                                                  parse-line(stream)));
+      let timestamp = parse-iso8601-string(parse-line(stream));
       let comment = parse-line(stream);
       let page = find-page(title);
       if (~page)
@@ -230,7 +226,7 @@ define function restore-from-text-files
                      content: content,
                      owner: author);
       end;
-      store(*storage*, page, author, comment);
+      store(*storage*, page, author, comment, "action=create");
     end;
   end for;
   page-data.size

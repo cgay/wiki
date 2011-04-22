@@ -126,7 +126,7 @@ define generic find-or-load-pages-with-tags
 
 define generic store
     (storage :: <storage>, obj :: <wiki-object>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>, meta-data :: <string>)
  => (revision :: <string>);
 
 define generic delete

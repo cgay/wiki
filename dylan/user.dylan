@@ -293,7 +293,7 @@ define method remove-user
   let comment = "Automatic change due to user account removal.";
   let author = authenticated-user();
   for (group in modified-groups)
-    store(*storage*, group, author, comment);
+    store(*storage*, group, author, comment, "action=delete");
   end;
   delete(*storage*, user, author, comment);
 end method remove-user;
@@ -446,10 +446,10 @@ define method respond-to-post
       next-method();
     else
       block ()
+        store(*storage*, user, user, "New user created", "action=create");
         with-lock ($user-lock)
           *users*[as-lowercase(user.user-name)] := user;
         end;
-        store(*storage*, user, user, "New user created");
         add-page-note("User %s created.  Please follow the link in the confirmation "
                       "email sent to %s to activate the account.",
                       new-name, email);
@@ -477,7 +477,7 @@ define function respond-to-user-activation-request
       let key = percent-decode(key);
       if (key = user.user-activation-key)
         user.user-activated? := #t;
-        store(*storage*, user, *admin-user*, "Account activated");
+        store(*storage*, user, *admin-user*, "Account activated", "action=activate");
       end;
     end;
     if (user.user-activated?)
@@ -541,9 +541,9 @@ define method respond-to-post
       if (user)
         let comments = make(<stretchy-vector>);
         if (user.user-name ~= new-name)
-          remove-key!(*users*, as-lowercase(name));  // old name
-          user.user-name := new-name;
-          add!(comments, format-to-string("renamed to %s", new-name));
+          let comment = sformat("Rename to %s", new-name);
+          rename-user(user, new-name, comment);
+          add!(comments, comment);
         end;
         if (user.user-password ~= password)
           user.user-password := password;
@@ -558,7 +558,7 @@ define method respond-to-post
           add!(comments, format-to-string("%s admin status",
                                           iff(admin?, "added", "removed")));
         end;
-        store(*storage*, user, active-user, join(comments, ", "));
+        store(*storage*, user, active-user, join(comments, ", "), "action=edit");
         add-page-note("User %s updated.", new-name);
       else
         // new user
@@ -567,7 +567,10 @@ define method respond-to-post
                      password: password,
                      email: email,
                      administrator?: admin?);
-        store(*storage*, user, active-user, "User created");
+        store(*storage*, user, active-user, "User created", "action=create");
+        with-lock ($user-lock)
+          *users*[as-lowercase(new-name)] := user;
+        end;
         add-page-note("User %s created.", new-name);
         login(realm: *wiki-realm*);
       end;
@@ -575,6 +578,20 @@ define method respond-to-post
     end if;
   end if;    
 end method respond-to-post;
+
+define function rename-user
+    (user :: <wiki-user>, new-name :: <string>, comment :: <string>)
+ => ()
+  let author = authenticated-user();
+  let revision = rename(*storage*, user, new-name, author, comment);
+  let old-name = user.user-name;
+  with-lock ($user-lock)
+    remove-key!(*users*, as-lowercase(old-name));
+    *users*[as-lowercase(new-name)] := user;
+  end;
+  user.user-name := new-name;
+  // user.user-revision := revision;
+end function rename-user;
 
 define method do-remove-user (#key username)
   let user = find-user(percent-decode(username));

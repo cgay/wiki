@@ -120,7 +120,7 @@ define method rename-group
       group.group-name := new-name;
       *groups*[new-lc-name] := group;
     end;
-    store(*storage*, group, authenticated-user(), comment);
+    store(*storage*, group, authenticated-user(), comment, "action=rename");
   end if;
 end method rename-group;
 
@@ -131,7 +131,7 @@ define method create-group
   let group = make(<wiki-group>,
                    name: name,
                    owner: author);
-  store(*storage*, group, author, comment);
+  store(*storage*, group, author, comment, "action=create");
   with-lock ($group-lock)
     *groups*[as-lowercase(name)] := group;
   end;
@@ -144,7 +144,7 @@ define method add-member
  => ()
   add-new!(group.group-members, user);
   let comment = concatenate("added ", user.user-name, ". ", comment);
-  store(*storage*, group, authenticated-user(), comment);
+  store(*storage*, group, authenticated-user(), comment, "action=add-member");
 end;
 
 define method remove-member
@@ -153,7 +153,7 @@ define method remove-member
  => ()
   remove!(group.group-members, user);
   let comment = concatenate("removed ", user.user-name, ". ", comment);
-  store(*storage*, group, authenticated-user(), comment);
+  store(*storage*, group, authenticated-user(), comment, "action=remove-member");
 end;
 
 define method remove-group
@@ -278,7 +278,7 @@ define method respond-to-post
             | new-owner ~= group.group-owner)
         group.group-description := description;
         group.group-owner := new-owner;
-        store(*storage*, group, authenticated-user(), comment);
+        store(*storage*, group, authenticated-user(), comment, "action=edit");
       end;
       redirect-to(group);
     end if;

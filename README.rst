@@ -9,8 +9,13 @@ following features:
 
   * Account verification.
 
-  * Access controls -- each object in the wiki can be restricted to
+  * Access controls -- each page in the wiki can be restricted to
     being viewed or edited by specific sets of users.
+
+Currently the parser is very rudimentary.  The plan is to replace it,
+possibly with an augmented version of Restructured Text so that the
+page source is as readable as possible.
+
 
 Configuration
 =============

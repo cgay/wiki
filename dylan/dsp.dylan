@@ -44,7 +44,7 @@ define variable *non-existing-page-page* = #f;
 define variable *view-user-page* = #f;
 define variable *list-users-page* = #f;
 define variable *edit-user-page* = #f;
-define variable *remove-user-page* = #f;
+define variable *deactivate-user-page* = #f;
 define variable *non-existing-user-page* = #f;
 
 define variable *list-groups-page* = #f;

@@ -266,16 +266,6 @@ define method discussion-page?
   matched? = #t;
 end;
 
-define function redirect-content?
-    (content :: <string>)
- => (content :: false-or(<string>), 
-     title :: false-or(<string>))
-  let (content, title) = 
-    regex-search-strings(compile-regex("^#REDIRECT \\[\\[(.*)\\]\\]"),
-                         content);
-  values(content, title);
-end;
-
 
 
 //// List Versions
@@ -614,19 +604,6 @@ define tag show-diff-entry in wiki
   let seq2 = get-attribute(pc, "seq2");
   print-diff-entry(entry, seq1, seq2);
 end tag show-diff-entry;
-
-
-define method redirect-to-page-or
-    (page :: <wiki-dsp>, #key title :: <string>)
-  let title = percent-decode(title);
-  dynamic-bind (*page* = find-or-load-page(title))
-    if (*page*)
-      respond-to-get(page);
-    else
-      redirect-to(page-permanent-link(title));
-    end if;
-  end;
-end method redirect-to-page-or;
 
 
 

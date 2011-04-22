@@ -278,26 +278,6 @@ define method validate-email
 end;
 
 
-define method remove-user
-    (user :: <wiki-user>, #key comment :: <string> = "")
- => ()
-  let modified-groups = make(<set>);
-  for (group in groups-owned-by-user(user))
-    group.group-owner := *admin-user*;
-    modified-groups := add!(modified-groups, group);
-  end;
-  for (group in user-groups(user))
-    group.group-members := remove!(group.group-members, user);
-    modified-groups := add!(modified-groups, group);
-  end;
-  let comment = "Automatic change due to user account removal.";
-  let author = authenticated-user();
-  for (group in modified-groups)
-    store(*storage*, group, author, comment, "action=delete");
-  end;
-  delete(*storage*, user, author, comment);
-end method remove-user;
-
 
 //// List Users
 
@@ -327,7 +307,7 @@ define method respond-to-post
   if (user)
     respond-to-get(*view-user-page*, name: user-name);
   else
-    add-field-error("user-name", "User %s not found.", user-name);
+    add-field-error("user-name", "User '%s' not found.", user-name);
     next-method();
   end;
 end method respond-to-post;
@@ -464,10 +444,10 @@ define method respond-to-post
 end method respond-to-post;
 
 
-//// User activation
+//// User activation/deactivation
 
 // Responder for the URL sent in confirmation email to activate the account.
-
+//
 define function respond-to-user-activation-request
     (#key name :: <string>, key :: <string>)
   let name = percent-decode(name);
@@ -490,6 +470,36 @@ define function respond-to-user-activation-request
   end;
   respond-to-get(*view-user-page*, name: name);
 end function respond-to-user-activation-request;
+
+define class <deactivate-user-page> (<wiki-dsp>)
+end;
+
+define method respond-to-get
+    (dsp :: <deactivate-user-page>, #key name :: <string>)
+  dynamic-bind (*user* = find-user(name))
+    next-method();
+  end;
+end;
+
+define method respond-to-post
+    (dsp :: <deactivate-user-page>, #key name :: <string>)
+  dynamic-bind (*user* = find-user(name))
+    let author = authenticated-user();
+    if (author
+        & (author = *user* | author.administrator?)
+        & (*user* ~= *admin-user*))
+      let comment = get-query-value("comment") | "Deactivated";
+      store(*storage*, *user*, author, comment, "action=deactivate");
+      *user*.user-activated? := #f;
+      add-page-note("User '%s' deactivated", *user*.user-name);
+      respond-to-get(*list-users-page*);
+    else
+      add-page-error("You don't have permission to deactivate this user.");
+      respond-to-get(*view-user-page*, name: name);
+    end;
+  end;
+end method respond-to-post;
+
 
 //// Edit User
 
@@ -593,12 +603,6 @@ define function rename-user
   // user.user-revision := revision;
 end function rename-user;
 
-define method do-remove-user (#key username)
-  let user = find-user(percent-decode(username));
-  remove-user(user, comment: get-query-value("comment"));
-  redirect-to(user);
-end;
-
 define method redirect-to-user-or
     (page :: <wiki-dsp>, #key username)
   if (*user*)
@@ -608,11 +612,6 @@ define method redirect-to-user-or
   end if;
 end;
 
-define method show-remove-user (#key username :: <string>)
-  dynamic-bind(*user* = find-user(percent-decode(username)))
-    redirect-to-user-or(*remove-user-page*);
-  end;
-end;
 
 // tags
 

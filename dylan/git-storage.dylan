@@ -398,11 +398,7 @@ define method delete
     (storage :: <storage>, user :: <wiki-user>, author :: <wiki-user>,
      comment :: <string>)
  => ()
-  TODO--delete-user;
-  // Maintain a file listing pages that have this group in their ACLs.
-  // This function should update that list.
-  // Maybe there's some clever way to avoid updating all the pages'
-  // acls files by looking at revisions?
+  git-error("User deletion disallowed");
 end method delete;
 
 define method rename

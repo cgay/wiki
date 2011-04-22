@@ -279,11 +279,11 @@ define function add-wiki-responders
       url-name: "wiki.user.view");
   add("/user/edit/{name}", *edit-user-page*,
       url-name: "wiki.user.edit");
-  add("/user/remove/{name}", *remove-user-page*,
-      url-name: "wiki.user.remove");
   add("/user/activate/{name}/{key}",
       function-resource(respond-to-user-activation-request),
       url-name: "wiki.user.activate");
+  add("/user/deactivate/{name}", *deactivate-user-page*,
+      url-name: "wiki.user.deactivate");
 
   add("/register", *registration-page*,
       url-name: "wiki.register");
@@ -381,7 +381,7 @@ define function initialize-pages
   *list-users-page* := make(<list-users-page>, source: "list-users.dsp");
   *view-user-page* := make(<view-user-page>, source: "view-user.dsp");
   *edit-user-page* := make(<edit-user-page>, source: "edit-user.dsp");
-  *remove-user-page* := make(<wiki-dsp>, source: "remove-user.dsp");
+  *deactivate-user-page* := make(<deactivate-user-page>, source: "deactivate-user.dsp");
   *non-existing-user-page* := make(<wiki-dsp>, source: "non-existing-user.dsp");
   *not-logged-in-page* := make(<wiki-dsp>, source: "not-logged-in.dsp");
 

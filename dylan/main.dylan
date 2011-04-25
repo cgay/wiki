@@ -44,11 +44,14 @@ define sideways method process-config-element
     error("An <administrator> element must be specified in the config file.");
   end;
   let (admin-user, changed?) = process-administrator-configuration(admin-element);
-  // TODO: COMMENTED OUT TEMPORARILY DUE TO H:\ BEING UNAVAILABLE
+  if (#f)
+    TODO--initialize-storage-for-writes;
+  end;
+  // COMMENTED OUT TEMPORARILY DUE TO H:\ BEING UNAVAILABLE
   //initialize-storage-for-writes(*storage*, admin-user);
   if (changed?)
     store(*storage*, admin-user, admin-user, "Change due to config file edit",
-          "action=edit");
+          standard-meta-data(admin-user, "edit"));
   end;
   *admin-user* := admin-user;
   *users*[as-lowercase(admin-user.user-name)] := admin-user;
@@ -194,7 +197,8 @@ define function restore-from-text-files
                           email: email,
                           administrator?: #f,
                           activated?: #t);
-          store(*storage*, user, *admin-user*, "New user", "action=create");
+          store(*storage*, user, *admin-user*, "New user",
+                standard-meta-data(user, "create"));
           inc!(user-count);
         end;
         assert(empty?(read-line(stream)));
@@ -226,7 +230,7 @@ define function restore-from-text-files
                      content: content,
                      owner: author);
       end;
-      store(*storage*, page, author, comment, "action=create");
+      store(*storage*, page, author, comment, standard-meta-data(page, "create"));
     end;
   end for;
   page-data.size
@@ -305,7 +309,7 @@ define function add-wiki-responders
       url-name: "wiki.page.remove");
   add("/page/versions/{title}", *page-versions-page*,
       url-name: "wiki.page.versions");
-  add("/page/diff/{title}/{version1}/{version2}", *view-diff-page*,
+  add("/page/diff/{title}/{version1}/{version2?}", *view-diff-page*,
       url-name: "wiki.page.diff");
   add("/page/connections/{title}", *connections-page*,
       url-name: "wiki.page.connections");

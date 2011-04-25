@@ -5,8 +5,6 @@ Author: Carl Gay
 
 // See wiki.dylan for the storage protocol generics.
 
-// TODO: anywhere that creates a directory or file needs to "git add" it.
-
 // TODO: locking strategy.  Ensure that only one instance of the wiki
 //       application can run for a given repository. Then load-all-users/groups
 //       can be done safely at startup. Then there could be one file lock per
@@ -22,8 +20,6 @@ Author: Carl Gay
 //       (At which point we can stop escaping the "s in command arguments, and
 //       various other potential escaping bugs will die.)
 
-define constant <revision> = type-union(<string>, singleton(#"newest"));
-
 define constant $user-prefix-size :: <integer> = 1;
 define constant $group-prefix-size :: <integer> = 1;
 define constant $page-prefix-size :: <integer> = 3;
@@ -36,6 +32,11 @@ define constant $default-sandbox-name :: <string> = "main";
 define constant $content :: <byte-string> = "content";
 define constant $tags :: <byte-string> = "tags";
 define constant $acls :: <byte-string> = "acls";
+
+// Some directory names, relative to the repository roots.
+define constant $pages-directory-name :: <string> = "pages";
+define constant $groups-directory-name :: <string> = "groups";
+define constant $users-directory-name :: <string> = "users";
 
 define constant sformat = format-to-string;
 
@@ -100,9 +101,12 @@ define method initialize-storage-for-reads
   call-git(storage, "init");
   call-git(storage, "init", working-directory: storage.git-user-repository-root);
 
-  *pages-directory* := subdirectory-locator(storage.git-repository-root, "pages");
-  *users-directory* := subdirectory-locator(storage.git-user-repository-root, "users");
-  *groups-directory* := subdirectory-locator(storage.git-repository-root, "groups");
+  *pages-directory*
+    := subdirectory-locator(storage.git-repository-root, $pages-directory-name);
+  *users-directory*
+    := subdirectory-locator(storage.git-user-repository-root, $users-directory-name);
+  *groups-directory*
+    := subdirectory-locator(storage.git-repository-root, $groups-directory-name);
 
   ensure-directories-exist(*pages-directory*);
   ensure-directories-exist(subdirectory-locator(*pages-directory*,
@@ -132,7 +136,7 @@ end method initialize-storage-for-writes;
 ///
 define method load
     (storage :: <git-storage>, class == <wiki-page>, title :: <string>,
-     #key revision :: <revision> = #"newest")
+     #key revision :: <string> = "HEAD")
  => (page :: <wiki-page>)
   log-debug("Loading page %=", title);
 
@@ -142,10 +146,16 @@ define method load
                                       $default-sandbox-name,
                                       prefix,
                                       etitle);
-  let page-path = sformat("pages/%s/%s/%s", $default-sandbox-name, prefix, etitle);
+  let page-path = sformat("%s/%s/%s/%s",
+                          $pages-directory-name,
+                          $default-sandbox-name, prefix, etitle);
   let content-path = sformat("%s/%s", page-path, $content);
-  let commit :: <commit> = git-load-commit(storage, content-path, revision);
-  let hash = commit.commit-hash;
+  let changes = git-load-changes(storage, content-path, revision, 1);
+  if (empty?(changes))
+    git-error("Page %= not found.", title);
+  end;
+  let change = changes[0];
+  let hash = change.change-revision;
   let tags = git-load-blob(storage, sformat("%s/%s", page-path, $tags), hash);
   let acls = git-load-blob(storage, sformat("%s/%s", page-path, $acls), hash);
   let content = git-load-blob(storage, content-path, hash);
@@ -154,9 +164,9 @@ define method load
        creation-date: creation-date,
        title: title,
        content: content,
-       comment: commit.commit-comment,
+       comment: change.change-comment,
        owner: owner,
-       author: find-user(commit.commit-author) | *admin-user*,
+       author: find-user(change.change-author) | *admin-user*,
        revision: hash,
        tags: git-parse-tags(tags),
        access-controls: acls)
@@ -223,7 +233,7 @@ end method find-or-load-pages-with-tags;
 
 define method store
     (storage :: <storage>, page :: <wiki-page>, author :: <wiki-user>,
-     comment :: <string>, meta-data :: <string>)
+     comment :: <string>, meta-data :: <string-table>)
  => (revision :: <string>)
   let (page-path, prefix, safe-title) = git-page-path(page.page-title);
   let prefix-dir = subdirectory-locator(*pages-directory*,
@@ -249,7 +259,7 @@ end method store;
 
 define method delete
     (storage :: <storage>, page :: <wiki-page>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>, meta-data :: <string-table>)
  => ()
   let (page-path, prefix, safe-title) = git-page-path(page.page-title);
   let prefix-dir = subdirectory-locator(*pages-directory*,
@@ -259,12 +269,12 @@ define method delete
   if (file-exists?(page-dir))
     call-git(storage, sformat("rm -r \"%s\"", page-path));
   end;
-  git-commit(storage, page-path, author, comment, "action=delete");
+  git-commit(storage, page-path, author, comment, meta-data)
 end method delete;
 
 define method rename
     (storage :: <storage>, page :: <wiki-page>, new-title :: <string>,
-     author :: <wiki-user>, comment :: <string>)
+     author :: <wiki-user>, comment :: <string>, meta-data :: <string-table>)
  => (revision :: <string>)
   let old-page-path = git-page-path(page.page-title);
   let (new-page-path, prefix, safe-title) = git-page-path(new-title);
@@ -272,19 +282,31 @@ define method rename
                                      prefix);
   ensure-directories-exist(new-dir);
   call-git(storage, sformat("mv \"%s\" \"%s\"", old-page-path, new-page-path));
-  let revision = git-commit(storage, old-page-path, author, comment,
-                            "action=rename",
+  let revision = git-commit(storage, old-page-path, author, comment, meta-data,
                             extra-path: new-page-path);
   log-info("Renamed page %= to %= @%s", page.page-title, new-title, revision);
   revision
 end method rename;
   
+define method find-changes
+    (storage :: <storage>, type == <wiki-page>,
+     #key start :: false-or(<string>),
+          name :: false-or(<string>),
+          count :: <integer> = $default-list-size)
+ => (changes :: <sequence>)
+  let path = iff(name, git-page-path(name), $pages-directory-name);
+  git-load-changes(storage, path, start | "HEAD", count)
+end;
+
+
 define function git-page-path
     (title :: <string>)
  => (path :: <string>, prefix :: <string>, safe-title :: <string>)
   let safe-title = git-encode-title(title);
   let prefix = title-prefix(safe-title);
-  values(sformat("pages/%s/%s/%s", $default-sandbox-name, prefix, safe-title),
+  values(sformat("%s/%s/%s/%s",
+                 $pages-directory-name,
+                 $default-sandbox-name, prefix, safe-title),
          prefix,
          safe-title)
 end;
@@ -370,7 +392,7 @@ end function git-parse-user;
 
 define method store
     (storage :: <storage>, user :: <wiki-user>, author :: <wiki-user>,
-     comment :: <string>, meta-data :: <string>)
+     comment :: <string>, meta-data :: <string-table>)
  => (revision :: <string>)
   let name :: <string> = user.user-name;
   log-info("Storing user %=", name);
@@ -396,14 +418,14 @@ end method store;
 
 define method delete
     (storage :: <storage>, user :: <wiki-user>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>, meta-data :: <string-table>)
  => ()
   git-error("User deletion disallowed");
 end method delete;
 
 define method rename
     (storage :: <storage>, user :: <wiki-user>, new-name :: <string>,
-     author :: <wiki-user>, comment :: <string>)
+     author :: <wiki-user>, comment :: <string>, meta-data :: <string-table>)
  => (revision :: <string>)
   let old-user-path = git-user-path(user.user-name);
   let new-user-path = git-user-path(new-name);
@@ -412,10 +434,19 @@ define method rename
 
   call-git(storage, sformat("mv \"%s\" \"%s\"", old-user-path, new-user-path));
   let revision = git-user-commit(storage, old-user-path, author, comment,
-                                 "action=rename",
-                                 extra-path: new-user-path);
+                                 meta-data, extra-path: new-user-path);
   log-info("Renamed user %= to %= @%s", user.user-name, new-name, revision);
 end method rename;
+
+define method find-changes
+    (storage :: <storage>, type == <wiki-user>,
+     #key start :: false-or(<string>),
+          name :: false-or(<string>),
+          count :: <integer> = $default-list-size)
+ => (changes :: <sequence>)
+  let path = iff(name, git-user-path(name), $users-directory-name);
+  git-load-changes(storage, path, start | "HEAD", count)
+end;
 
 define function git-user-storage-file
     (storage :: <git-storage>, name :: <string>)
@@ -427,7 +458,9 @@ end;
 
 define inline function git-user-path
     (username :: <string>) => (path :: <string>)
-  sformat("users/%s/%s", slice(username, 0, $user-prefix-size), username)
+  sformat("%s/%s/%s",
+          $users-directory-name,
+          slice(username, 0, $user-prefix-size), username)
 end;
 
 
@@ -491,7 +524,7 @@ end function git-parse-group;
 
 define method store
     (storage :: <storage>, group :: <wiki-group>, author :: <wiki-user>,
-     comment :: <string>, meta-data :: <string>)
+     comment :: <string>, meta-data :: <string-table>)
  => (revision :: <string>)
   let name :: <string> = group.group-name;
   log-info("Storing group %=", name);
@@ -514,7 +547,7 @@ end method store;
 
 define method delete
     (storage :: <storage>, group :: <wiki-group>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>, meta-data :: <string-table>)
  => ()
   TODO--delete-group;
   // Maintain a file listing pages that have this group in their ACLs.
@@ -525,7 +558,7 @@ end method delete;
 
 define method rename
     (storage :: <storage>, group :: <wiki-group>, new-name :: <string>,
-     author :: <wiki-user>, comment :: <string>)
+     author :: <wiki-user>, comment :: <string>, meta-data :: <string-table>)
  => (revision :: <string>)
   TODO--rename-group;
 end method rename;
@@ -538,14 +571,48 @@ define function git-group-storage-file
                name)
 end;
 
+define method find-changes
+    (storage :: <storage>, type == <wiki-group>,
+     #key start :: false-or(<string>),
+          name :: false-or(<string>),
+          count :: <integer> = $default-list-size)
+ => (changes :: <sequence>)
+  let path = iff(name, git-group-path(name), $groups-directory-name);
+  git-load-changes(storage, path, start | "HEAD", count)
+end;
+
 define inline function git-group-path
     (groupname :: <string>) => (path :: <string>)
-  sformat("groups/%s/%s", slice(groupname, 0, $group-prefix-size), groupname)
+  sformat("%s/%s/%s",
+          $groups-directory-name,
+          slice(groupname, 0, $group-prefix-size), groupname)
 end;
 
 
 
 //// Utilities
+
+/// Implement the find-changes generic for <wiki-object>.  Interleaves the
+/// recent changes for pages, users, and groups, in reverse time order. Note
+/// that the "name" keyword is not meaningful here so it is left off.
+///
+define method find-changes
+    (storage :: <storage>, type == <wiki-object>,
+     #key start :: false-or(<string>),
+          count :: <integer> = $default-list-size)
+ => (changes :: <sequence>)
+  let changes = concatenate(find-changes(storage, <wiki-page>,
+                                         start: start, count: count),
+                            find-changes(storage, <wiki-user>,
+                                         start: start, count: count),
+                            find-changes(storage, <wiki-group>,
+                                         start: start, count: count));
+  slice(sort(changes, test: method (c1, c2)
+                              c1.change-date > c2.change-date
+                            end),
+        0, count)
+end method find-changes;
+
 
 /// Run the given git command with CWD set to the wiki data repository root.
 ///
@@ -606,14 +673,12 @@ end function call-git;
 // and then use "git cat-file" or "git show" to get the content.
 
 define function git-load-blob
-    (storage :: <git-storage>, path :: <string>, revision :: <revision>,
+    (storage :: <git-storage>, path :: <string>, revision :: <string>,
      #key working-directory)
  => (blob :: <string>)
   let (stdout, stderr, exit-code)
     = call-git(storage,
-               sformat("show \"%s:%s\"",
-                       iff(revision = #"newest", "HEAD", revision),
-                       path),
+               sformat("show \"%s:%s\"", revision, path),
                working-directory: working-directory);
   stdout
 end function git-load-blob;
@@ -695,8 +760,8 @@ define inline function git-encode-date
 end;
 
 define inline function git-parse-date
-    (date :: <string>) => (date :: <date>)
-  make(<date>, iso8601-string: date)
+    (string :: <string>) => (date :: <date>)
+  parse-iso8601-string(string, strict?: #f)
 end;
 
 /// Iterate over an object directory hierarchy applying 'fun' to each one in turn.
@@ -728,7 +793,7 @@ end function do-object-files;
 
 define function git-commit
     (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
-     comment :: <string>, meta-data :: <string>,
+     comment :: <string>, meta-data :: <string-table>,
      #key extra-path :: false-or(<string>))
  => (revision :: <string>)
   %git-commit(storage, path, author, comment, meta-data,
@@ -738,7 +803,7 @@ end;
 
 define function git-user-commit
     (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
-     comment :: <string>, meta-data :: <string>,
+     comment :: <string>, meta-data :: <string-table>,
      #key extra-path :: false-or(<string>))
  => (revision :: <string>)
   %git-commit(storage, path, author, comment, meta-data,
@@ -756,7 +821,7 @@ end;
 ///
 define function %git-commit
     (storage :: <git-storage>, path :: <string>, author :: <wiki-user>,
-     comment :: <string>, meta-data :: <string>, repo-root :: <directory-locator>,
+     comment :: <string>, meta-data :: <string-table>, repo-root :: <directory-locator>,
      extra-path :: false-or(<string>))
  => (revision :: <string>)
   // TODO: Don't want to put the real user email address in the author field,
@@ -804,6 +869,7 @@ define function %git-commit
                                        short-hash, extra-path | path),
                                working-directory: repo-root));
       if (~empty?(meta-data))
+        let meta-data = meta-data-to-string(meta-data);
         call-git(storage, sformat("notes add -m \"%s\" %s", meta-data, hash));
       end;
       hash
@@ -811,40 +877,73 @@ define function %git-commit
   end
 end function %git-commit;
 
-define class <commit> (<object>)
-  constant slot commit-hash    :: <string>, required-init-keyword: hash:;
-  constant slot commit-author  :: <string>, required-init-keyword: author:;
-  // constant slot commit-date    :: <date>,   required-init-keyword: date:;
-  constant slot commit-comment :: <string>, required-init-keyword: comment:;
+define function git-load-changes
+    (storage :: <git-storage>, path :: <string>, revision :: <string>,
+     count :: <integer>)
+ => (changes :: <sequence>)
+  local method read-multi-line (lines, end-marker)
+          iterate loop (meta-data = #(), lines = lines)
+            if (lines.head = end-marker)
+              values(reverse!(meta-data),
+                     lines.tail)
+            else
+              loop(pair(trim(lines.head), meta-data),
+                   lines.tail)
+            end
+          end
+        end;
+  // The basic idea here is that each commit is delimited by the commit hash
+  // in three places: on first line and after the any multi-line field, namely
+  // the comment (%s) and the notes (%N).  That way it can be used to find the
+  // end of multi-line fields.
+  let (stdout, stderr, exit-code)
+    = call-git(storage,
+               sformat("log -%d --format=%s %s -- \"%s\"",
+                       count, "%H%n%ci%n%an%n%s%n%H%n%N%H", revision, path));
+  iterate loop (lines = as(<list>, split(stdout, "\n")),
+                changes = #())
+    if (changes.size = count | lines.size <= 4)
+      reverse!(changes)
+    else
+      let hash = lines[0];
+      let date = git-parse-date(lines[1]);
+      let author = lines[2];
+      let (comment, rest) = read-multi-line(lines.tail.tail.tail, hash);
+      let (raw-meta-data, rest) = read-multi-line(rest, hash);
+      let meta-data = lines-to-meta-data(raw-meta-data);
+      let name = element(meta-data, "name", default: "<unknown>");
+      let type = element(meta-data, "type", default: "object");
+      let change = make(<wiki-change>,
+                        name: name,
+                        type: type,
+                        revision: hash,
+                        author: author,
+                        date: date,
+                        comment: join(comment, "\n"),
+                        meta-data: meta-data);
+      loop(rest, pair(change, changes))
+    end
+  end iterate
+end function git-load-changes;
+
+define function lines-to-meta-data
+    (lines :: <sequence>) => (meta-data :: <string-table>)
+  let t = make(<string-table>);
+  for (line in lines)
+    let (key, val) = apply(values, split(line, '=', count: 2));
+    t[key] := val;
+  end;
+  t
 end;
 
-define function git-load-commit
-    (storage :: <git-storage>, path :: <string>, revision :: <revision>)
- => (commit :: <commit>)
-  let (stdout, stderr, exit-code)
-    = call-git(storage, sformat("log -1 --log-size --date=iso -- \"%s\"", path));
-  let lines = split(stdout, "\n");
-  if (exit-code = 0 & lines.size >=4)
-    let commit-line = lines[0];
-    let log-size-line = lines[1]; // Note: includes author and date line lengths
-    let author-line = lines[2];
-    let date-line = lines[3];
-    let comment = trim(join(slice(lines, 4, #f), "\n"));
-
-    let hash = split(commit-line, ' ')[1];
-    let log-size = string-to-integer(split(log-size-line, ' ')[2]);
-    let date = parse-iso8601-string(trim(slice(date-line, "Date:".size, #f)),
-                                    strict?: #f);
-
-    let match = regex-search($git-author-regex, author-line);
-    let author = match-group(match, 1);
-
-    make(<commit>, hash: hash, author: author, /*date: date,*/ comment: comment)
-  else
-    git-error("Unable to load commit info for %= at revision %=",
-              path, revision);
-  end
-end function git-load-commit;
+define function meta-data-to-string
+    (meta-data :: <string-table>) => (string :: <string>)
+  join(map(method (key)
+             concatenate(key, "=", meta-data[key])
+           end,
+           meta-data.key-sequence),
+       "\n")
+end;
 
 define function tags-to-string
     (tags :: <sequence>) => (string :: <string>)

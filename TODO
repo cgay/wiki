@@ -2,6 +2,7 @@ Fix before going live
 ---------------------
 
 * Page back links
+* Rename page/user/group need to update page references.
 * Recent changes
 * Disable UI access to unfinished TODO--* items.
 * Convert the content in www.opendylan.org to wiki pages and make

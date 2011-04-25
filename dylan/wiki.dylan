@@ -90,6 +90,7 @@ define table $past-tense-table = {
 
 define wf/error-test (exists) in wiki end;
 
+define generic permanent-link (obj :: <object>) => (url :: <url>);
 
 
 
@@ -124,19 +125,23 @@ define generic load-all
 define generic find-or-load-pages-with-tags
     (storage :: <storage>, tags :: <sequence>) => (pages :: <sequence>);
 
+define generic find-changes
+    (storage :: <storage>, type :: subclass(<wiki-object>), #key start, count, #all-keys)
+ => (changes :: <sequence>);
+
 define generic store
     (storage :: <storage>, obj :: <wiki-object>, author :: <wiki-user>,
-     comment :: <string>, meta-data :: <string>)
+     comment :: <string>, meta-data :: <string-table>)
  => (revision :: <string>);
 
 define generic delete
     (storage :: <storage>, obj :: <wiki-object>, author :: <wiki-user>,
-     comment :: <string>)
+     comment :: <string>, meta-data :: <string-table>)
  => ();
 
 define generic rename
     (storage :: <storage>, obj :: <wiki-object>, new-name :: <string>,
-     author :: <wiki-user>, comment :: <string>)
+     author :: <wiki-user>, comment :: <string>, meta-data :: <string-table>)
  => (revision :: <string>);
 
 /// This is what the above methods should signal if they can't fullfill
@@ -146,7 +151,73 @@ end;
 
 
 
+//// Changes
 
+define class <wiki-change> (<object>)
+  constant slot change-revision    :: <string>, required-init-keyword: revision:;
+  constant slot change-author      :: <string>, required-init-keyword: author:;
+  constant slot change-date        :: <date>,   required-init-keyword: date:;
+  constant slot change-comment     :: <string>, required-init-keyword: comment:;
+
+  // Keys that always exist: "name", "type", "action".
+  // TODO: Be resilient to by-hand edits, in which case these items may not have
+  //       been stored in the Notes for the commit.  This info could be recovered
+  //       by grovelling over the output of "git whatchanged".
+  constant slot change-meta-data   :: <string-table>, required-init-keyword: meta-data:;
+end;
+
+define function change-object-name
+    (change :: <wiki-change>) => (name :: <string>)
+  change.change-meta-data["name"]
+end;
+
+define function change-type-name
+    (change :: <wiki-change>) => (name :: <string>)
+  change.change-meta-data["type"]
+end;
+
+define function change-object-type
+    (change :: <wiki-change>) => (type :: subclass(<wiki-object>))
+  select (change.change-type-name by \=)
+    "page" => <wiki-page>;
+    "user" => <wiki-user>;
+    "group" => <wiki-group>;
+  end
+end;
+
+define function change-action
+    (change :: <wiki-change>) => (action :: <string>)
+  element(change.change-meta-data, "action", default: "change")
+end;
+
+define function standard-meta-data
+    (object :: <wiki-object>, action :: <string>)
+ => (meta-data :: <string-table>)
+  let meta-data = make(<string-table>);
+  meta-data["action"] := action;
+  meta-data["name"] := select (object.object-class)
+                         <wiki-page> => object.page-title;
+                         <wiki-user> => object.user-name;
+                         <wiki-group> => object.group-name;
+                       end;
+  meta-data["type"] := select (object.object-class)
+                         <wiki-page> => "page";
+                         <wiki-user> => "user";
+                         <wiki-group> => "group";
+                       end;
+  meta-data
+end;
+
+define method permanent-link
+    (change :: <wiki-change>) => (url :: <url>)
+  let location = wiki-url("/page/diff/%s/%s",
+                          change.change-object-name,
+                          change.change-revision);
+  transform-uris(request-url(current-request()), location, as: <url>)
+end;
+
+
+
 // Standard date format.  The plan is to make this customizable per user
 // and to use the user's timezone.  For now just ISO 8601...
 //
@@ -201,9 +272,9 @@ end;
 
 define method respond-to-get
     (page :: <recent-changes-page>, #key)
-  let changes = sort(wiki-changes(),
+  let changes = sort(find-recent-changes(),
                      test: method (change1, change2)
-                             change1.creation-date > change2.creation-date   
+                             change1.change-date > change2.change-date   
                            end);
   let page-number = get-query-value("page", as: <integer>) | 1;
   let paginator = make(<paginator>,
@@ -213,53 +284,54 @@ define method respond-to-get
   next-method();
 end;
 
-// Return a sequence of changes of the given type.  This is used for
-// Atom feed requests, in which case there is (presumably) no authenticated
-// user so it only returns changes for publicly viewable pages in that case.
+/// Synopsis: Find changes for wiki objects of type 'for-type'.
+///
+/// Arguments:
+///   for-type  - Should be <wiki-page>, <wiki-user>, or <wiki-group>
+///               or <wiki-object> (the default).  <wiki-object> will
+///               find changes for any object.
+///   start     - A revision number at which to start searching (backward)
+///               for changes.  With the git back-end this is a hash.
+///               The default (#f) means to start with the most recent change.
+///   name      - Only find changes for objects matching this name exactly.
+///               For pages this matches the title.  The default (#f) matches
+///               anything.
+/// Values:
+///   changes - a sequence of <wiki-change> objects representing object
+///             creations, edits, deletions, or renames.
 //
-define method wiki-changes
-    (#key change-type :: false-or(<class>),
-          tag :: false-or(<string>),
+define method find-recent-changes
+    (#key for-type :: subclass(<wiki-object>) = <wiki-object>,
+          start :: false-or(<string>),
           name :: false-or(<string>))
  => (changes :: <sequence>)
-  TODO--wiki-changes;
-end method wiki-changes;
+  find-changes(*storage*, for-type, start: start, name: name)
+end;
 
 define body tag list-recent-changes in wiki
     (page :: <wiki-dsp>, do-body :: <function>)
     ()
-  TODO--list-recent-changes;
-/*
   let pc = page-context();
   let previous-change = #f;
   let paginator :: <paginator> = get-attribute(pc, "recent-changes");
-  for (change in paginator)
-    set-attribute(pc, "day", standard-date(change.creation-date));
+  for (change :: <wiki-change> in paginator)
+    set-attribute(pc, "day", standard-date(change.change-date));
     set-attribute(pc, "previous-day",
-                  previous-change & standard-date(previous-change.creation-date));
-    set-attribute(pc, "time", standard-time(change.creation-date));
+                  previous-change & standard-date(previous-change.change-date));
+    set-attribute(pc, "time", standard-time(change.change-date));
     set-attribute(pc, "permalink", as(<string>, permanent-link(change)));
     set-attribute(pc, "change-class", change.change-type-name);
-    set-attribute(pc, "title", change.title);
+    set-attribute(pc, "title", change.change-object-name);
     set-attribute(pc, "action", as(<string>, change.change-action));
-    set-attribute(pc, "comment", change.comments[0].content.content);
-    set-attribute(pc, "version",
-                  instance?(change, <wiki-page-change>) & change.change-version);
+    set-attribute(pc, "comment", change.change-comment);
+    set-attribute(pc, "version", change.change-revision);
     set-attribute(pc, "verb", 
                   element($past-tense-table, change.change-action, default: #f)
                   | as(<string>, change.change-action));
-    set-attribute(pc, "author",
-                  begin
-                    let authors = change.authors;
-                    let user = ~empty?(authors) & find-user(authors[0]);
-                    user & user.user-name
-                  end);
-*/
+    set-attribute(pc, "author", change.change-author);
     do-body();
-/*
     previous-change := change;
   end;
-*/
 end tag list-recent-changes;
 
 define tag base-url in wiki

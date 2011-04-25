@@ -170,11 +170,8 @@ define wf/object-test (user) in wiki end;
 define wf/error-tests (username, password, email) in wiki end;
 
 
-// url
-
 define sideways method permanent-link
-    (user :: <wiki-user>, #key escaped?, full?)
- => (url :: <url>)
+    (user :: <wiki-user>) => (url :: <url>)
   user-permanent-link(user.user-name);
 end;
 
@@ -189,8 +186,6 @@ define sideways method redirect-to (user :: <wiki-user>)
   redirect-to(permanent-link(user));
 end;
 
-
-// methods
 
 define method send-new-account-email
     (user :: <wiki-user>)
@@ -426,7 +421,8 @@ define method respond-to-post
       next-method();
     else
       block ()
-        store(*storage*, user, user, "New user created", "action=create");
+        store(*storage*, user, user, "New user created",
+              standard-meta-data(user, "create"));
         with-lock ($user-lock)
           *users*[as-lowercase(user.user-name)] := user;
         end;
@@ -457,7 +453,8 @@ define function respond-to-user-activation-request
       let key = percent-decode(key);
       if (key = user.user-activation-key)
         user.user-activated? := #t;
-        store(*storage*, user, *admin-user*, "Account activated", "action=activate");
+        store(*storage*, user, *admin-user*, "Account activated",
+              standard-meta-data(user, "activate"));
       end;
     end;
     if (user.user-activated?)
@@ -489,7 +486,8 @@ define method respond-to-post
         & (author = *user* | author.administrator?)
         & (*user* ~= *admin-user*))
       let comment = get-query-value("comment") | "Deactivated";
-      store(*storage*, *user*, author, comment, "action=deactivate");
+      store(*storage*, *user*, author, comment,
+            standard-meta-data(*user*, "deactivate"));
       *user*.user-activated? := #f;
       add-page-note("User '%s' deactivated", *user*.user-name);
       respond-to-get(*list-users-page*);
@@ -568,7 +566,8 @@ define method respond-to-post
           add!(comments, format-to-string("%s admin status",
                                           iff(admin?, "added", "removed")));
         end;
-        store(*storage*, user, active-user, join(comments, ", "), "action=edit");
+        store(*storage*, user, active-user, join(comments, ", "),
+              standard-meta-data(user, "edit"));
         add-page-note("User %s updated.", new-name);
       else
         // new user
@@ -577,7 +576,8 @@ define method respond-to-post
                      password: password,
                      email: email,
                      administrator?: admin?);
-        store(*storage*, user, active-user, "User created", "action=create");
+        store(*storage*, user, active-user, "User created",
+              standard-meta-data(user, "create"));
         with-lock ($user-lock)
           *users*[as-lowercase(new-name)] := user;
         end;
@@ -593,7 +593,8 @@ define function rename-user
     (user :: <wiki-user>, new-name :: <string>, comment :: <string>)
  => ()
   let author = authenticated-user();
-  let revision = rename(*storage*, user, new-name, author, comment);
+  let revision = rename(*storage*, user, new-name, author, comment,
+                        standard-meta-data(user, "rename"));
   let old-name = user.user-name;
   with-lock ($user-lock)
     remove-key!(*users*, as-lowercase(old-name));

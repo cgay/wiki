@@ -2,7 +2,7 @@ Module: %wiki
 
 
 /// Default number of pages to show on the list-pages page.
-define constant $default-page-count :: <integer> = 25;
+define constant $default-list-size :: <integer> = 25;
 
 
 // Represents a user-editable wiki page revision.  Not to be confused
@@ -56,7 +56,7 @@ end;
 //// URLs
 
 define method permanent-link
-    (page :: <wiki-page>, #key escaped?, full?)
+    (page :: <wiki-page>)
  => (url :: <url>)
   page-permanent-link(page.page-title)
 end;
@@ -159,8 +159,8 @@ define method save-page
     end;
     *pages*[title] := page;
   end;
-  let meta-data = sformat("action=%s", action);
-  page.page-revision := store(*storage*, page, page.page-author, comment, meta-data);
+  page.page-revision := store(*storage*, page, page.page-author, comment,
+                              standard-meta-data(page, action));
 /*
   TODO: 
   block ()
@@ -222,14 +222,12 @@ end;
 */
 
 define method rename-page
-    (page :: <wiki-page>, new-title :: <string>,
-     #key comment :: false-or(<string>))
+    (page :: <wiki-page>, new-title :: <string>, comment ::<string>)
  => ()
   let author = authenticated-user();
   let old-title = page.page-title;
-  let comment = comment | format-to-string("Renamed from %= to %=",
-                                           old-title, new-title);
-  let revision = rename(*storage*, page, new-title, author, comment);
+  let revision = rename(*storage*, page, new-title, author, comment,
+                        standard-meta-data(page, "rename"));
   with-lock ($page-lock)
     remove-key!(*pages*, old-title);
     *pages*[new-title] := page;
@@ -356,7 +354,7 @@ define method respond-to-get
     let current-page = get-query-value("page", as: <integer>) | 1;
     let paginator = make(<paginator>,
                          sequence: map(page-info, find-pages()),
-                         page-size: $default-page-count,
+                         page-size: $default-list-size,
                          current-page-number: current-page);
     set-attribute(pc, "wiki-pages", paginator);
     next-method();
@@ -381,8 +379,8 @@ define method respond-to-post
   let page = find-or-load-page(percent-decode(title));
   if (page)
     delete(*storage*, page, authenticated-user(),
-           get-query-value("comment")
-           | format-to-string("Removed page %=", title));
+           get-query-value("comment") | "",
+           standard-meta-data(page, "delete"));
     with-lock ($page-lock)
       remove-key!(*pages*, title);
     end;
@@ -447,8 +445,8 @@ define method respond-to-get
     set-attribute(pc, "title", title);
     set-attribute(pc, "previewing?", #f);
     dynamic-bind (*page* = find-or-load-page(title))
+      set-attribute(pc, "original-title", title);
       if (*page*)
-        set-attribute(pc, "original-title", *page*.page-title);
         set-attribute(pc, "content", *page*.page-content);
         set-attribute(pc, "owner", *page*.page-owner);
         set-attribute(pc, "tags", unparse-tags(*page*.page-tags));
@@ -485,7 +483,7 @@ define method respond-to-post
       else
         if (page & ~previewing?)
           title := new-title;
-          rename-page(page, new-title, comment: comment);
+          rename-page(page, new-title, comment | "");
         end;
       end;
     end;
@@ -505,7 +503,7 @@ define method respond-to-post
 
     if (previewing? | page-has-errors?())
       set-attribute(page-context(), "previewing?", #t);
-      set-attribute(page-context(), "original-title", page.page-title);
+      set-attribute(page-context(), "original-title", title);
       process-template(wiki-dsp);
     else
       let page = save-page(title, content | "", comment, tags);
@@ -517,7 +515,8 @@ end method respond-to-post;
 
 //// View Diff
 
-define class <view-diff-page> (<wiki-dsp>) end;
+define class <view-diff-page> (<wiki-dsp>)
+end;
 
 // /Title/diff/n  diffs versions n - 1 and n.
 // /Title/diff/n/m diffs versions n and m.

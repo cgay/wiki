@@ -1,6 +1,5 @@
 Library: wiki
 Files: library
-       dsp
        wiki
        tag
        user

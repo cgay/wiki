@@ -309,7 +309,7 @@ define function add-wiki-responders
       url-name: "wiki.page.remove");
   add("/page/versions/{title}", *page-versions-page*,
       url-name: "wiki.page.versions");
-  add("/page/diff/{title}/{version1}/{version2?}", *view-diff-page*,
+  add("/page/diff/{title}/{version1}", *view-diff-page*,
       url-name: "wiki.page.diff");
   add("/page/connections/{title}", *connections-page*,
       url-name: "wiki.page.connections");

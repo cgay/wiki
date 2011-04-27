@@ -5,7 +5,6 @@ Synopsis: User account management.
 // User data is stored in a separate git repository so that it can
 // be maintained under stricter security than other data.
 
-
 define thread variable *user-username* = #f;
 
 define thread variable *authenticated-user* = #f;
@@ -66,6 +65,12 @@ define generic user-real-name
 define method user-real-name
     (user :: <wiki-user>) => (real-name :: <string>)
   user.%user-real-name | user.user-name
+end;
+
+define function find-user
+    (name :: <string>, #key default)
+ => (user :: false-or(<wiki-user>))
+  element(*users*, as-lowercase(name), default: default)
 end;
 
 // This is set when the config file is loaded.

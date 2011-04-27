@@ -1,6 +1,78 @@
 Module: %wiki
+Synopsis: Utilities, globals, protocols, base classes, ...
+          Basically anything that needs to be defined first.
+
 
 define constant $wiki-version :: <string> = "2011.04.07"; // YYYY.mm.dd
+
+
+define taglib wiki () end;
+
+// Represents a DSP maintained in our source code tree. Not to be confused
+// with <wiki-page>, which is a user-editable wiki page.
+//
+define class <wiki-dsp> (<dylan-server-page>)
+end;
+
+
+// These two variables should reflect the layout of the subdirectories
+// in the wiki project directory.  The default values are setup to work
+//  if you cd to wiki/ and run the wiki executable.
+
+define variable *static-directory* :: <directory-locator>
+  = subdirectory-locator(working-directory(), "www");
+
+define variable *template-directory* :: <directory-locator>
+  = subdirectory-locator(*static-directory*, "dsp");
+
+
+define method make
+    (class :: subclass(<wiki-dsp>), #rest args, #key source :: <pathname>)
+ => (page :: <wiki-dsp>)
+  apply(next-method, class,
+        source: merge-locators(as(<file-locator>, source),
+                               *template-directory*),
+        args)
+end;
+
+// The following will all be set after *template-directory* is set.
+
+define variable *edit-page-page* = #f;
+define variable *view-page-page* = #f;
+define variable *remove-page-page* = #f;
+define variable *page-versions-page* = #f;
+define variable *connections-page* = #f;
+define variable *view-diff-page* = #f;
+define variable *search-page* = #f;
+define variable *non-existing-page-page* = #f;
+
+define variable *view-user-page* = #f;
+define variable *list-users-page* = #f;
+define variable *edit-user-page* = #f;
+define variable *deactivate-user-page* = #f;
+define variable *non-existing-user-page* = #f;
+
+define variable *list-groups-page* = #f;
+define variable *non-existing-group-page* = #f;
+define variable *view-group-page* = #f;
+define variable *edit-group-page* = #f;
+define variable *remove-group-page* = #f;
+define variable *edit-group-members-page* = #f;
+
+define variable *registration-page* = #f;
+define variable *edit-access-page* = #f;
+
+
+
+//// Wiki object caches
+
+/// All objects stored in the wiki (pages, users, groups) must subclass this.
+///
+define class <wiki-object> (<object>)
+  constant slot creation-date :: <date> = current-date();
+  // TODO:
+  //constant slot modification-date :: <date> = <same as creation-date>;
+end;
 
 
 // If you need to hold more than one of these locks, acquire them in
@@ -13,11 +85,6 @@ define variable *users* :: <string-table> = make(<string-table>);
 
 /// Hold this when modifying *users*.
 define constant $user-lock :: <lock> = make(<lock>);
-
-define function find-user
-    (name :: <string>, #key default)
-  element(*users*, as-lowercase(name), default: default)
-end;
 
 
 /// All groups are loaded from storage at startup and stored in this collection.
@@ -41,23 +108,28 @@ define constant $page-lock :: <lock> = make(<lock>);
 
 
 
-/// All objects store in the wiki (pages, users, groups)
-/// must subclass this.
-///
-define class <wiki-object> (<object>)
-  constant slot creation-date :: <date> = current-date();
-  // TODO:
-  //constant slot modification-date :: <date> = <same as creation-date>;
-end;
+//// General-use DSP tags
 
 // Prefix for all wiki URLs.  Set to "" for no prefix.
 define variable *wiki-url-prefix* :: <string> = "/wiki";
 
+// This shouldn't be needed once generate-url is working.
 define tag base in wiki
     (page :: <wiki-dsp>) ()
   output("%s", *wiki-url-prefix*);
 end;
 
+define tag base-url in wiki
+    (page :: <wiki-dsp>)
+    ()
+  let url = current-request().request-absolute-url; // this may make a new url
+  output("%s", build-uri(make(<url>,
+                              scheme: url.uri-scheme,
+                              host: url.uri-host,
+                              port: url.uri-port)));
+end;
+
+// Mostly for use in setting the "redirect" parameter in templates.
 define tag current in wiki
     (page :: <wiki-dsp>) ()
   output("%s", build-uri(request-url(current-request())));
@@ -70,25 +142,19 @@ define function wiki-url
                         apply(format-to-string, format-string, format-args)))
 end;  
 
-define constant $activate = #"activate";
-define constant $create = #"create";
-define constant $edit   = #"edit";
-define constant $remove = #"remove";
-define constant $rename = #"rename";
-define constant $remove-group-owner = #"remove-group-owner";
-define constant $remove-group-member = #"remove-group-member";
+define constant $past-tense-table
+  = make-table(<string-table>,
+               "activate" => "activated",
+               "create"   => "created",
+               "edit"     => "edited",
+               "remove"   => "removed",
+               "rename"   => "renamed",
+               "add-member"    => "added member",
+               "remove-member" => "removed member",
 
-define table $past-tense-table = {
-    $activate => "activated",
-    $create => "created",
-    $edit   => "edited",
-    $remove => "removed",
-    $rename => "renamed",
-    $remove-group-owner => "removed as group owner",
-    $remove-group-member => "removed as group member"
-  };
-
-define wf/error-test (exists) in wiki end;
+               // I don't think these two are currently used.  --cgay Apr 2011
+               "add-group-owner"    => "added owner",
+               "remove-group-owner" => "removed owner");
 
 define generic permanent-link (obj :: <object>) => (url :: <url>);
 
@@ -210,7 +276,7 @@ end;
 
 define method permanent-link
     (change :: <wiki-change>) => (url :: <url>)
-  let location = wiki-url("/page/diff/%s/%s",
+  let location = wiki-url("/page/view/%s/%s",
                           change.change-object-name,
                           change.change-revision);
   transform-uris(request-url(current-request()), location, as: <url>)
@@ -218,54 +284,7 @@ end;
 
 
 
-// Standard date format.  The plan is to make this customizable per user
-// and to use the user's timezone.  For now just ISO 8601...
-//
-define method standard-date-and-time
-    (date :: <date>) => (date-and-time :: <string>)
-  as-iso8601-string(date)
-end;
-
-define method standard-date
-    (date :: <date>) => (date :: <string>)
-  format-date("%Y.%m.%d", date)
-end;
-
-define method standard-time
-    (date :: <date>) => (time :: <string>)
-  format-date("%H:%M", date)
-end;
-
-define tag show-version-published in wiki
-    (page :: <wiki-dsp>)
-    (formatted :: <string>)
-  output("%s", format-date(formatted, *page*.creation-date));
-end;
-
-define tag show-page-published in wiki
-    (page :: <wiki-dsp>)
-    (formatted :: <string>)
-  if (*page*)
-    output("%s", format-date(formatted, *page*.creation-date));
-  end if;
-end;
-
-// Rename to show-revision
-define tag show-version-number in wiki
-    (page :: <wiki-dsp>)
-    ()
-  output("%s", *page*.page-revision);
-end; 
-
-// Rename to show-comment
-define tag show-version-comment in wiki
-    (page :: <wiki-dsp>)
-    ()
-  output("%s", *page*.page-comment);
-end;
-
-
-//// Recent Changes
+//// Recent Changes page
 
 define class <recent-changes-page> (<wiki-dsp>)
 end;
@@ -319,40 +338,77 @@ define body tag list-recent-changes in wiki
     set-attribute(pc, "previous-day",
                   previous-change & standard-date(previous-change.change-date));
     set-attribute(pc, "time", standard-time(change.change-date));
-    set-attribute(pc, "permalink", as(<string>, permanent-link(change)));
-    set-attribute(pc, "change-class", change.change-type-name);
+    set-attribute(pc, "revision-url", as(<string>, permanent-link(change)));
+    set-attribute(pc, "newest-url",
+                  as(<string>, page-permanent-link(change.change-object-name)));
+    set-attribute(pc, "diff-url",
+                  as(<string>, wiki-url("/page/diff/%s/%s",
+                                        change.change-object-name,
+                                        change.change-revision)));
+    set-attribute(pc, "object-type", change.change-type-name);
     set-attribute(pc, "title", change.change-object-name);
     set-attribute(pc, "action", as(<string>, change.change-action));
     set-attribute(pc, "comment", change.change-comment);
     set-attribute(pc, "version", change.change-revision);
     set-attribute(pc, "verb", 
                   element($past-tense-table, change.change-action, default: #f)
-                  | as(<string>, change.change-action));
+                  | change.change-action);
     set-attribute(pc, "author", change.change-author);
     do-body();
     previous-change := change;
   end;
 end tag list-recent-changes;
 
-define tag base-url in wiki
+
+
+// TODO: replace all these date-related tags with one tag like
+//       <wiki:date object="page|group|user" format="..." />
+
+// Standard date format.  The plan is to make this customizable per user
+// and to use the user's timezone.  For now just ISO 8601...
+//
+define method standard-date-and-time
+    (date :: <date>) => (date-and-time :: <string>)
+  as-iso8601-string(date)
+end;
+
+define method standard-date
+    (date :: <date>) => (date :: <string>)
+  format-date("%Y.%m.%d", date)
+end;
+
+define method standard-time
+    (date :: <date>) => (time :: <string>)
+  format-date("%H:%M", date)
+end;
+
+define tag show-version-published in wiki
+    (page :: <wiki-dsp>)
+    (formatted :: <string>)
+  output("%s", format-date(formatted, *page*.creation-date));
+end;
+
+define tag show-page-published in wiki
+    (page :: <wiki-dsp>)
+    (formatted :: <string>)
+  if (*page*)
+    output("%s", format-date(formatted, *page*.creation-date));
+  end if;
+end;
+
+define tag page-creation-date in wiki
     (page :: <wiki-dsp>)
     ()
-  let url = current-request().request-absolute-url; // this may make a new url
-  output("%s", build-uri(make(<url>,
-                              scheme: url.uri-scheme,
-                              host: url.uri-host,
-                              port: url.uri-port)));
-end tag base-url;
+  output("%s", as-iso8601-string(*page*.creation-date));
+end; 
 
-define sideways method permission-error (action, #key)
-//  respond-to(#"get", *not-logged-in-page*);  
+// Rename to show-comment
+define tag show-version-comment in wiki
+    (page :: <wiki-dsp>)
+    ()
+  output("%s", *page*.page-comment);
 end;
+
 
 define variable *not-logged-in-page* = #f;
-
-define sideways method authentication-error (action, #key)
-  respond-to-get(*not-logged-in-page*);
-end;
-
-
 

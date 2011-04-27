@@ -21,17 +21,6 @@ in wiki end;
 define error-test (filename) in wiki end;
 
 
-// verbs
-
-*change-verbs*[<wiki-file-change>] :=
-  table(#"edit" => "edited",
-	#"removal" => "removed",
-	#"renaming" => "renamed",
-	#"add" => "uploaded");
-
-
-// url
-
 define method permanent-link
     (file :: <wiki-file>, #key escaped?, full?)
  => (url :: <url>);

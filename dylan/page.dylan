@@ -518,17 +518,12 @@ end method respond-to-post;
 define class <view-diff-page> (<wiki-dsp>)
 end;
 
-// /Title/diff/n  diffs versions n - 1 and n.
-// /Title/diff/n/m diffs versions n and m.
-// Note that in the first case n is the newer version and in the latter
-// case n is the older version.
+// /page/diff/Title/n -- Show the diff for revision n.
 //
-// TODO:
 define method respond-to-get
     (page :: <view-diff-page>,
      #key title :: <string>,
-          version1 :: <string>,
-          version2 :: false-or(<string>))
+          version1 :: <string>)
   let title = percent-decode(title);
   dynamic-bind (*page* = find-page(title))  // only for <show-page-title/>
     if (*page*)

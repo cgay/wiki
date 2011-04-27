@@ -299,8 +299,7 @@ define function add-wiki-responders
   add("/page/list",
       make(<list-pages-page>, source: "list-pages.dsp"),
       url-name: "wiki.page.list");
-  add("/page/view/{title}/{version?}",
-      function-resource(show-page-responder),
+  add("/page/view/{title}/{version?}", *view-page-page*,
       url-name: "wiki.page.view");
   add("/page/edit/{title}/{version?}",
       make(<edit-page-page>, source: "edit-page.dsp"),
@@ -374,7 +373,7 @@ define function initialize-pages
   // page pages
   *view-diff-page* := make(<view-diff-page>, source: "view-diff.dsp");
   *edit-page-page* := make(<edit-page-page>, source: "edit-page.dsp");
-  *view-page-page* := make(<wiki-dsp>, source: "view-page.dsp");
+  *view-page-page* := make(<view-page-page>, source: "view-page.dsp");
   *remove-page-page* := make(<remove-page-page>, source: "remove-page.dsp");
   *page-versions-page* := make(<page-versions-page>, source: "list-page-versions.dsp");
   *connections-page* := make(<connections-page>, source: "page-connections.dsp");

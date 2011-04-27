@@ -72,30 +72,41 @@ define method redirect-to (page :: <wiki-page>)
   redirect-to(permanent-link(page));
 end;
 
-
+/// Find a cached page.
 define method find-page
     (title :: <string>)
  => (page :: false-or(<wiki-page>))
   element(*pages*, title, default: #f)
 end;
 
-// In fact we load all pages at startup for now (to simplify searches
-// and iteration over lists of pages) so this probably never loads anything.
+// The latest revisions of all pages are loaded at startup for now (to
+// simplify searches and iteration over lists of pages) so this will only
+// load anything if the 'revision' arg is supplied.
 //
 define method find-or-load-page
-    (title :: <string>)
-  find-page(title)
-  | block ()
-      // Load page is slow, do it without the lock held.
-      let loaded-page = load(*storage*, <wiki-page>, title);
-      with-lock ($page-lock)
-        // check again with lock held
-        find-page(title)
-        | (*pages*[title] := loaded-page)
+    (title :: <string>, #key revision :: false-or(<string>))
+ => (page :: false-or(<wiki-page>))
+  let page = find-page(title);
+  if (page & (~revision | page.page-revision = revision))
+    page
+  else
+    block ()
+      if (revision)
+        // Don't attempt to cache older revisions of pages.
+        load(*storage*, <wiki-page>, title, revision: revision);
+      else
+        // Load page is slow, do it without the lock held.
+        let loaded-page = load(*storage*, <wiki-page>, title);
+        with-lock ($page-lock)
+          // check again with lock held
+          find-page(title)
+          | (*pages*[title] := loaded-page)
+        end
       end
     exception (ex :: <git-storage-error>)
-      // ignored
-    end;
+      #f
+    end
+  end
 end method find-or-load-page;
 
 // The plan is for this to eventually support many more search criteria,
@@ -392,6 +403,8 @@ define method respond-to-post
 end;
 
 
+//// View Page
+
 // Provide backward compatibility with old wiki URLs
 // /wiki/view.dsp?title=t&version=v
 // 
@@ -417,18 +430,24 @@ define method show-page-back-compatible
   end;
 end;
 
-define method show-page-responder
-    (#key title :: <string>, version)
+define class <view-page-page> (<wiki-dsp>)
+end;
+
+define method respond-to-get
+    (dsp :: <view-page-page>,
+     #key title :: <string>, version :: false-or(<string>))
   let title = percent-decode(title);
-  dynamic-bind (*page* = find-or-load-page(title))
-    respond-to-get(case
-                     *page* => *view-page-page*;
-                     authenticated-user() => *edit-page-page*;
-                     otherwise => *non-existing-page-page*;
-                   end,
-                   title: title);
+  dynamic-bind (*page* = find-or-load-page(title, revision: version))
+    if (*page*)
+      process-template(dsp);
+    elseif (authenticated-user())
+      // Give the user a change to create the page.
+      respond-to-get(*edit-page-page*, title: title);
+    else
+      respond-to-get(*non-existing-page-page*, title: title);
+    end;
   end;
-end method show-page-responder;
+end method respond-to-get;
 
 
 

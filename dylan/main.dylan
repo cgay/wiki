@@ -279,7 +279,9 @@ define function add-wiki-responders
 
   add("/user/list", *list-users-page*,
       url-name: "wiki.user.list");
-  add("/user/view/{name}", *view-user-page*,
+  // TODO: support the {revision?} path element.  Requires a revision
+  //       slot in wiki-object.
+  add("/user/view/{name}/{revision?}", *view-user-page*,
       url-name: "wiki.user.view");
   add("/user/edit/{name}", *edit-user-page*,
       url-name: "wiki.user.edit");
@@ -301,6 +303,7 @@ define function add-wiki-responders
       url-name: "wiki.page.list");
   add("/page/view/{title}/{version?}", *view-page-page*,
       url-name: "wiki.page.view");
+  // TODO: rename {version} to {revision}
   add("/page/edit/{title}/{version?}",
       make(<edit-page-page>, source: "edit-page.dsp"),
       url-name: "wiki.page.edit");
@@ -317,7 +320,9 @@ define function add-wiki-responders
 
   add("/group/list", *list-groups-page*,
       url-name: "wiki.group.list");
-  add("/group/view/{name}", *view-group-page*,
+  // TODO: support the {revision?} path element.  Requires a revision
+  //       slot in wiki-object.
+  add("/group/view/{name}/{revision?}", *view-group-page*,
       url-name: "wiki.group.view");
   add("/group/edit/{name}", *edit-group-page*,
       url-name: "wiki.group.edit");
@@ -391,7 +396,7 @@ define function initialize-pages
   // group pages
   *list-groups-page* := make(<list-groups-page>, source: "list-groups.dsp");
   *non-existing-group-page* := make(<wiki-dsp>, source: "non-existing-group.dsp");
-  *view-group-page* := make(<group-page>, source: "view-group.dsp");
+  *view-group-page* := make(<view-group-page>, source: "view-group.dsp");
   *edit-group-page* := make(<edit-group-page>, source: "edit-group.dsp");
   *remove-group-page* := make(<remove-group-page>, source: "remove-group.dsp");
   *edit-group-members-page* := make(<edit-group-members-page>,

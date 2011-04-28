@@ -149,8 +149,8 @@ define constant $past-tense-table
                "edit"     => "edited",
                "remove"   => "removed",
                "rename"   => "renamed",
-               "add-member"    => "added member",
-               "remove-member" => "removed member",
+               "add-members"    => "group member added",
+               "remove-members" => "group member removed",
 
                // I don't think these two are currently used.  --cgay Apr 2011
                "add-group-owner"    => "added owner",
@@ -276,7 +276,9 @@ end;
 
 define method permanent-link
     (change :: <wiki-change>) => (url :: <url>)
-  let location = wiki-url("/page/view/%s/%s",
+  // Yet another place that needs to be fixed by using generate-url.
+  let location = wiki-url("/%s/view/%s/%s",
+                          change.change-type-name,
                           change.change-object-name,
                           change.change-revision);
   transform-uris(request-url(current-request()), location, as: <url>)
@@ -339,8 +341,7 @@ define body tag list-recent-changes in wiki
                   previous-change & standard-date(previous-change.change-date));
     set-attribute(pc, "time", standard-time(change.change-date));
     set-attribute(pc, "revision-url", as(<string>, permanent-link(change)));
-    set-attribute(pc, "newest-url",
-                  as(<string>, page-permanent-link(change.change-object-name)));
+    set-attribute(pc, "newest-url", as(<string>, permanent-link(change)));
     set-attribute(pc, "diff-url",
                   as(<string>, wiki-url("/page/diff/%s/%s",
                                         change.change-object-name,

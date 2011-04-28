@@ -212,17 +212,32 @@ define method respond-to-post
 end method respond-to-post;
 
 
-//// Group page
+//// View Group
 
-define class <group-page> (<wiki-dsp>)
+define class <view-group-page> (<wiki-dsp>)
 end;
 
-// Add basic group attributes to page context and display the page template.
-//
 define method respond-to-get
-    (page :: <group-page>, #key name :: <string>)
+    (dsp :: <view-group-page>,
+     #key name :: <string>, version :: false-or(<string>))
   let name = percent-decode(name);
   let group = find-group(name);
+  set-group-page-attributes(name, group);
+  if (group)
+    process-template(dsp);
+  else
+    // Should only get here via a typed-in URL.
+    respond-to-get(*non-existing-group-page*);
+  end if;
+end method respond-to-get;
+
+// Idea: Could only define a respond-to-get/post method on <wiki-dsp> and
+// have it call something like this, which could be specialized for
+// each object type, then dispatch to something like "handle-get/post".
+// I.e., have a standard way to set attributes on the page.
+//
+define function set-group-page-attributes
+    (name :: <string>, group :: false-or(<wiki-group>))
   let pc = page-context();
   set-attribute(pc, "group-name", name);
   let user = authenticated-user();
@@ -233,23 +248,32 @@ define method respond-to-get
     set-attribute(pc, "group-owner", group.group-owner.user-name);
     set-attribute(pc, "group-description", group.group-description);
     set-attribute(pc, "group-members", sort(map(user-name, group.group-members)));
-    next-method();
-  else
-    // Should only get here via a typed-in URL.
-    respond-to-get(*non-existing-group-page*);
-  end if;
-end method respond-to-get;
+  end;
+end function set-group-page-attributes;
 
 
 //// Edit Group
 
-define class <edit-group-page> (<group-page>)
+define class <edit-group-page> (<wiki-dsp>)
+end;
+
+define method respond-to-get
+    (dsp :: <edit-group-page>,
+     #key name :: <string>,
+          revision :: false-or(<string>))  // TODO:
+  let name = trim(percent-decode(name));
+  let group = find-group(name);
+  set-group-page-attributes(name, group);
+  process-template(dsp);
 end;
 
 define method respond-to-post
-    (page :: <edit-group-page>, #key name)
+    (dsp :: <edit-group-page>,
+     #key name :: <string>,
+          revision :: false-or(<string>))  // TODO:
   let name = trim(percent-decode(name));
   let group = find-group(name);
+  set-group-page-attributes(name, group);
   if (~group)
     // foreign post?
     respond-to-get(*non-existing-group-page*);
@@ -271,7 +295,7 @@ define method respond-to-post
     end;
     if (page-has-errors?())
       // redisplay page with errors
-      respond-to-get(*edit-group-page*, name: name);
+      process-template(dsp);
     else
       // todo -- the rename and save should be part of a transaction.
       if (new-name ~= name)
@@ -293,21 +317,32 @@ end method respond-to-post;
 
 //// Remove Group
 
-define class <remove-group-page> (<group-page>)
+define class <remove-group-page> (<wiki-dsp>)
+end;
+
+define method respond-to-get
+    (dsp :: <remove-group-page>, #key name :: <string>)
+  let name = percent-decode(name);
+  let group = find-group(name);
+  set-group-page-attributes(name, group);
+  process-template(dsp);
 end;
 
 define method respond-to-post
     (page :: <remove-group-page>, #key name :: <string>)
-  let group-name = percent-decode(name);
-  let group = find-group(group-name);
+  let name = percent-decode(name);
+  let group = find-group(name);
+  set-group-page-attributes(name, group);
   if (group)
     let author = authenticated-user();
     if (author & (author = group.group-owner | administrator?(author)))
       remove-group(group, get-query-value("comment") | "");
-      add-page-note("Group %s removed", group-name);
+      add-page-note("Group %s removed", name);
     else
       add-page-error("You do not have permission to remove this group.")
     end;
+    // hack hack.  Should have some idea where the user wants to go via
+    // the 'redirect' parameter, or something like that.
     respond-to-get(*list-groups-page*);
   else
     respond-to-get(*non-existing-group-page*);
@@ -320,7 +355,7 @@ end method respond-to-post;
 // TODO: It should be possible to edit the group name, owner,
 //       and members all in one page.
 
-define class <edit-group-members-page> (<edit-group-page>)
+define class <edit-group-members-page> (<wiki-dsp>)
 end;
 
 define method respond-to-get
@@ -328,13 +363,18 @@ define method respond-to-get
      #key name :: <string>, must-exist :: <boolean> = #t)
   let name = percent-decode(name);
   let group = find-group(name);
+  set-group-page-attributes(name, group);
   if (group)
     with-lock ($user-lock)
       // Note: user must be logged in.  That check is done in the template.
       // non-members is for the add/remove members page
       set-attribute(page-context(),
                     "non-members",
-                    sort(key-sequence(*users*)));
+                    sort(map(user-name,
+                             choose(method (u)
+                                      ~member?(u, group.group-members)
+                                    end,
+                                    value-sequence(*users*)))));
       // Add all users to the page context so they can be selected
       // for group membership.
       set-attribute(page-context(),
@@ -347,8 +387,8 @@ end method respond-to-get;
 
 define method respond-to-post
     (page :: <edit-group-members-page>, #key name :: <string>)
-  let group-name = percent-decode(name);
-  let group = find-group(group-name);
+  let name = percent-decode(name);
+  let group = find-group(name);
   if (group)
     with-query-values (add as add?, remove as remove?, users, members, comment)
       if (add? & users)
@@ -373,7 +413,7 @@ end method respond-to-post;
 
 
 define named-method can-modify-group?
-    (page :: <group-page>)
+    (page :: <wiki-dsp>)
   let user = authenticated-user();
   user & (administrator?(user)
             | user.user-name = get-attribute(page-context(), "active-user"));

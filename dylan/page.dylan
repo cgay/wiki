@@ -81,7 +81,8 @@ end;
 
 // The latest revisions of all pages are loaded at startup for now (to
 // simplify searches and iteration over lists of pages) so this will only
-// load anything if the 'revision' arg is supplied.
+// load anything if the 'revision' arg is supplied.  Note that 'revision'
+// should never be "head" or any other symbolic revision.
 //
 define method find-or-load-page
     (title :: <string>, #key revision :: false-or(<string>))

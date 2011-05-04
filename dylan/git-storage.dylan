@@ -292,11 +292,12 @@ define method find-changes
     (storage :: <storage>, type == <wiki-page>,
      #key start :: false-or(<string>),
           name :: false-or(<string>),
-          count :: <integer> = $default-list-size)
+          count :: <integer> = $default-list-size,
+          diff? :: <boolean>)
  => (changes :: <sequence>)
   let path = iff(name, git-page-path(name), $pages-directory-name);
-  git-load-changes(storage, path, start | "HEAD", count)
-end;
+  git-load-changes(storage, path, start | "HEAD", count, diff?: diff?)
+end method find-changes;
 
 
 define function git-page-path
@@ -877,13 +878,23 @@ define function %git-commit
   end
 end function %git-commit;
 
+/// Read the git log output and create a sequence of <wiki-change>s.
+///
 define function git-load-changes
     (storage :: <git-storage>, path :: <string>, revision :: <string>,
-     count :: <integer>)
+     count :: <integer>,
+     #key diff? :: <boolean>)
  => (changes :: <sequence>)
+  local method hash? (s :: <string>)
+          s.size = 40 & every?(rcurry(member?, "0123456789abcdef"), s)
+        end;
   local method read-multi-line (lines, end-marker)
+          // end-marker is a hash or #f, meaning match any hash.
           iterate loop (meta-data = #(), lines = lines)
-            if (lines.head = end-marker)
+            if (empty?(lines)
+                | (lines.head = end-marker)
+                | (~end-marker & hash?(lines.head)))
+              log-debug("meta-data = %=", meta-data);
               values(reverse!(meta-data),
                      lines.tail)
             else
@@ -898,8 +909,12 @@ define function git-load-changes
   // end of multi-line fields.
   let (stdout, stderr, exit-code)
     = call-git(storage,
-               sformat("log -%d --format=%s %s -- \"%s\"",
-                       count, "%H%n%ci%n%an%n%s%n%H%n%N%H", revision, path));
+               sformat("log %s -%d --format=%s %s -- \"%s\"",
+                       iff(diff?, "-p", ""),
+                       count,
+                       "%H%n%ci%n%an%n%s%n%H%n%N%H",
+                       revision,
+                       path));
   iterate loop (lines = as(<list>, split(stdout, "\n")),
                 changes = #())
     if (changes.size = count | lines.size <= 4)
@@ -913,6 +928,9 @@ define function git-load-changes
       let meta-data = lines-to-meta-data(raw-meta-data);
       let name = element(meta-data, "name", default: "<unknown>");
       let type = element(meta-data, "type", default: "object");
+      // The diff output comes after the --format output, and is terminated
+      // by the next commit's hash or by EOF.
+      let diff = iff(diff?, read-multi-line(rest, #f), "");
       let change = make(<wiki-change>,
                         name: name,
                         type: type,
@@ -920,7 +938,8 @@ define function git-load-changes
                         author: author,
                         date: date,
                         comment: join(comment, "\n"),
-                        meta-data: meta-data);
+                        meta-data: meta-data,
+                        diff: join(diff, "\n"));
       loop(rest, pair(change, changes))
     end
   end iterate

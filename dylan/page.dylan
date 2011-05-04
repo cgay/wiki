@@ -541,43 +541,27 @@ end;
 // /page/diff/Title/n -- Show the diff for revision n.
 //
 define method respond-to-get
-    (page :: <view-diff-page>,
+    (dsp :: <view-diff-page>,
      #key title :: <string>,
-          version1 :: <string>)
+          revision :: false-or(<string>))
   let title = percent-decode(title);
-  dynamic-bind (*page* = find-page(title))  // only for <show-page-title/>
-    if (*page*)
-      block (return)
-        let pc = page-context();
-        let old-rev = #f;
-        let new-rev = #f;
-        if (~old-rev)
-          add-page-error("%s revision #%s does not exist.", title, ix1 + 1);
-        end;
-        if (~new-rev)
-          add-page-error("%s revision #%s does not exist.", title, ix2 + 1);
-        end;
-        if (old-rev & new-rev)
-
-// Clearly we want to use "git diff" here.
-
-          let seq1 = split(old-rev.page-content, '\n');
-          let seq2 = split(new-rev.page-content, '\n');
-          set-attribute(pc, "diffs", sequence-diff(seq1, seq2));
-          // sequence-diff doesn't hang onto the actual lines, only indexes,
-          // so store them too...
-          set-attribute(pc, "seq1", seq1);
-          set-attribute(pc, "seq2", seq2);
-        end;
-      exception (ex :: <error>)
-        add-page-error("Invalid version number: %s", ex);
-      end;
-    else
-      add-page-error("The page does not exist: %s", title);
-    end;
-    next-method();
+  let changes = find-changes(*storage*, <wiki-page>,
+                             start: revision, name: title, count: 1, diff?: #t);
+  if (empty?(changes))
+    add-page-error("No diff for page %= found.", title);
+    redirect-to(find-page(title) | *non-existing-page-page*);
+  else
+    let change :: <wiki-change> = changes[0];
+    let pc = page-context();
+    set-attribute(pc, "name", change.change-object-name);
+    set-attribute(pc, "diff", change.change-diff);
+    set-attribute(pc, "author", change.change-author);
+    set-attribute(pc, "comment", change.change-comment);
+    set-attribute(pc, "date", as-iso8601-string(change.change-date));
+    process-template(dsp);
   end;
 end method respond-to-get;
+
 
 define method print-diff-entry
     (entry :: <insert-entry>, seq1 :: <sequence>, seq2 :: <sequence>)
@@ -593,6 +577,7 @@ define method print-diff-entry
     output("%d: %s<br/>", lineno, line);
   end;
 end method print-diff-entry;
+
   
 define method print-diff-entry
     (entry :: <delete-entry>, seq1 :: <sequence>, seq2 :: <sequence>)

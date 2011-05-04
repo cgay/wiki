@@ -224,6 +224,7 @@ define class <wiki-change> (<object>)
   constant slot change-author      :: <string>, required-init-keyword: author:;
   constant slot change-date        :: <date>,   required-init-keyword: date:;
   constant slot change-comment     :: <string>, required-init-keyword: comment:;
+  constant slot change-diff        :: <string> = "", init-keyword: diff:;
 
   // Keys that always exist: "name", "type", "action".
   // TODO: Be resilient to by-hand edits, in which case these items may not have

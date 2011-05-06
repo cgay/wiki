@@ -40,7 +40,7 @@ end;
 define variable *edit-page-page* = #f;
 define variable *view-page-page* = #f;
 define variable *remove-page-page* = #f;
-define variable *page-versions-page* = #f;
+define variable *page-history-page* = #f;
 define variable *connections-page* = #f;
 define variable *view-diff-page* = #f;
 define variable *search-page* = #f;
@@ -191,6 +191,8 @@ define generic load-all
 define generic find-or-load-pages-with-tags
     (storage :: <storage>, tags :: <sequence>) => (pages :: <sequence>);
 
+// If 'type' ~= <wiki-object>, the 'name' keyword argument is supported.
+// If 'type' == <wiki-page>, the 'diff?' keyword argument is supported.
 define generic find-changes
     (storage :: <storage>, type :: subclass(<wiki-object>), #key start, count, #all-keys)
  => (changes :: <sequence>);

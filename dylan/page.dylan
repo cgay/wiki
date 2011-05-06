@@ -280,37 +280,38 @@ end;
 
 //// List Versions
 
-define class <page-versions-page> (<wiki-dsp>)
+define class <page-history-page> (<wiki-dsp>)
 end;
 
 define method respond-to-get
-    (page :: <page-versions-page>, #key title :: <string>)
-  let wiki-page = find-or-load-page(percent-decode(title));
-  if (wiki-page)
-    set-attribute(page-context(), "title", percent-decode(title));
-    set-attribute(page-context(), "page-versions", TODO--page-versions);
-    next-method()
+    (dsp :: <page-history-page>,
+     #key title :: <string>, revision :: false-or(<string>))
+  let title = percent-decode(title);
+  let page = find-or-load-page(title);
+  if (page)
+    dynamic-bind (*page* = page)
+      let pc = page-context();
+      set-attribute(pc, "title", title);
+      local method change-to-table (change)
+              // TODO: a way to define DSP accessors for objects such as
+              //       <wiki-change> so this isn't necessary.
+              make-table(<string-table>,
+                         "author" => change.change-author,
+                         "date" => as-iso8601-string(change.change-date),
+                         "rev" => change.change-revision,
+                         "comment" => change.change-comment)
+            end;
+      set-attribute(pc, "page-changes",
+                    map(change-to-table,
+                        find-changes(*storage*, <wiki-page>,
+                                     name: title, start: revision)));
+      next-method();
+    end;
   else
     respond-to-get(*non-existing-page-page*, title: title);
   end;
 end;
 
-define body tag list-page-versions in wiki
-    (page :: <wiki-dsp>, do-body :: <function>)
-    ()
-  let pc = page-context();
-  for (page in get-attribute(pc, "page-versions"))
-    set-attribute(pc, "author", page.page-author.user-name);
-    // todo -- make date format and TZ a user setting.
-    set-attribute(pc, "published",
-                  format-date("%e %b %Y %H:%M:%S", page.creation-date));
-    set-attribute(pc, "comment", iff(page.page-comment.empty?,
-                                     "-",
-                                     page.page-comment));
-    set-attribute(pc, "version-number", page.page-revision);
-    do-body();
-  end;
-end tag list-page-versions;
 
 
 //// Page connections (backlinks)

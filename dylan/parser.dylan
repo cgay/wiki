@@ -4,7 +4,7 @@ Author: Carl Gay
 Copyright: This code is in the public domain.
 
 
-define variable *wiki-link-url* = wiki-url("/pages/");
+define variable *wiki-link-url* = wiki-url("/page/view/");
 
 // This table maps the leading character of any markup that can occur
 // top-level (i.e., anywhere in the wiki page) to a function that

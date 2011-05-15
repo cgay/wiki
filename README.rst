@@ -65,8 +65,8 @@ Build the library and then run it like this::
 
 
 
-Data File Layout
-================
+Data File Layouts
+=================
 
 All wiki data are stored in a git repository.  "Public" data is stored
 in one repository and "private" data in another.  The only private
@@ -103,9 +103,11 @@ Example::
 	  <page-name-1>/content  # page markup
 	  <page-name-1>/tags     # page tags
 	  <page-name-1>/acls     # page ACLs
+	  <page-name-1>/links    # pages that link to this page
 	  <page-name-2>/content
 	  <page-name-2>/tags
 	  <page-name-2>/acls
+	  <page-name-2>/links
 	  ...
 	<prefix-2>/
 	  ...
@@ -174,3 +176,10 @@ acls
     Passwords are stored in base-64 for now, to be slightly better
     than clear text.  This must be improved.  Email is also in
     base-64.
+
+Backlinks (Page References)
+===========================
+
+Use for: users to see what points to a page
+
+Update page = update backlink file for all pages it references or dereferences.

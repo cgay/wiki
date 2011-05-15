@@ -551,10 +551,6 @@ define method delete
      comment :: <string>, meta-data :: <string-table>)
  => ()
   TODO--delete-group;
-  // Maintain a file listing pages that have this group in their ACLs.
-  // This function should update that list.
-  // Maybe there's some clever way to avoid updating all the pages'
-  // acls files by looking at revisions?
 end method delete;
 
 define method rename
@@ -562,6 +558,9 @@ define method rename
      author :: <wiki-user>, comment :: <string>, meta-data :: <string-table>)
  => (revision :: <string>)
   TODO--rename-group;
+  // Need to maintain object IDs that are permanent and monotonically increasing
+  // so that renaming an object doesn't require modifying all references.
+  // Page references are problematic since users type in the page names.
 end method rename;
 
 define function git-group-storage-file

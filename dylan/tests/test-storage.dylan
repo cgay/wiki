@@ -21,9 +21,9 @@ define function init-storage
                      executable: git-exe);
   init-admin-user(storage);
   initialize-storage-for-reads(storage);
-// temp
-//  initialize-storage-for-writes(storage, *admin-user*);
-  store(storage, *admin-user*, *admin-user*, "init-admin-user");
+  initialize-storage-for-writes(storage, *admin-user*);
+  store(storage, *admin-user*, *admin-user*, "Init admin user",
+        standard-meta-data(*admin-user*, "edit"));
   *storage* := storage;
   storage
 end;
@@ -83,7 +83,8 @@ define test test-save/load-user ()
                       activated?: #t);
   let author = old-user;
   check-no-condition("store user works",
-                     store(storage, old-user, author, "comment"));
+                     store(storage, old-user, author, "comment",
+                           standard-meta-data(old-user, "create")));
 
   let users = load-all(storage, <wiki-user>);
   check-equal("Two users in storage", 2, users.size);
@@ -119,7 +120,8 @@ end;
 define test test-save/load-page ()
   let storage = init-storage();
   let old-page = make-test-page();
-  store(storage, old-page, old-page.page-author, old-page.page-comment);
+  store(storage, old-page, old-page.page-author, old-page.page-comment,
+        standard-meta-data(old-page, "create"));
   let new-page = load(storage, <wiki-page>, old-page.page-title);
   for (fn in list(page-title,
                   page-content,
@@ -174,7 +176,8 @@ define test test-save/load-group ()
                        members: list(*admin-user*),
                        description: "group a");
   check-no-condition("store group works",
-                     store(storage, old-group, *admin-user*, "creating group a"));
+                     store(storage, old-group, *admin-user*, "creating group a",
+                           standard-meta-data(old-group, "create")));
 
   let groups = load-all(storage, <wiki-group>);
   check-equal("One group in storage", 1, groups.size);
@@ -201,7 +204,7 @@ define test test-find-or-load-pages-with-tags ()
   let page2 = make-test-page(title: "p2", tags: #("tag2"));
   let page3 = make-test-page(title: "p3", tags: #("tag3"));
   for (page in list(page1, page2, page3))
-    store(storage, page, *admin-user*, "comment");
+    store(storage, page, *admin-user*, "comment", standard-meta-data(page, "create"));
   end;
   check-true("revision slot bound after storing page",
              slot-initialized?(page3, page-revision));

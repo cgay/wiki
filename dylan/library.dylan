@@ -44,14 +44,18 @@ define library wiki
 
   export
     wiki,
-    %wiki;   // for the test suite
+    %wiki;
 end library wiki;
 
+/// External module
+///
 define module wiki
   create
     add-wiki-responders;
 end;
 
+/// Internal module, for test suite
+///
 define module %wiki
   use base64;
   use changes,
@@ -132,7 +136,8 @@ define module %wiki
     find-or-load-pages-with-tags,
     store,
     delete,
-    rename;
+    rename,
+    standard-meta-data;
     
   // Groups
   export

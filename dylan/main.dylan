@@ -44,11 +44,7 @@ define sideways method process-config-element
     error("An <administrator> element must be specified in the config file.");
   end;
   let (admin-user, changed?) = process-administrator-configuration(admin-element);
-  if (#f)
-    TODO--initialize-storage-for-writes;
-  end;
-  // COMMENTED OUT TEMPORARILY DUE TO H:\ BEING UNAVAILABLE
-  //initialize-storage-for-writes(*storage*, admin-user);
+  initialize-storage-for-writes(*storage*, admin-user);
   if (changed?)
     store(*storage*, admin-user, admin-user, "Change due to config file edit",
           standard-meta-data(admin-user, "edit"));
